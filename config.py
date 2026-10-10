@@ -95,7 +95,7 @@ AGENTS = {
         "icon": "pen",
         "plans": ["creator", "full_studio"],
         "status": "orchestration_ready",
-        "requires_integration": "Needs a language-model API key connected to generate real script text (see Account Settings → Integrations).",
+        "requires_integration": "Needs an OpenAI API key connected to generate real script text (see Account Settings → Integrations).",
         "capabilities": [
             "Hook, script, scene breakdown, CTA generation",
             "Multiple tones, platforms, languages",
@@ -193,36 +193,6 @@ AGENTS = {
             "Respects each user's subscription plan",
         ],
     },
-    "brand_memory": {
-        "slug": "brand_memory",
-        "name": "AI Brand Memory",
-        "short_description": "One consistent brand, remembered everywhere.",
-        "icon": "bookmark",
-        "plans": ["creator", "full_studio"],
-        "status": "orchestration_ready",
-        "requires_integration": None,
-        "capabilities": [
-            "Multiple brand profiles per account",
-            "Colors, fonts, tone of voice, guidelines",
-            "Other agents read the active profile automatically",
-            "Nothing saved as confirmed without your approval",
-        ],
-    },
-    "media_library": {
-        "slug": "media_library",
-        "name": "AI Media Library",
-        "short_description": "Every asset, organized and searchable.",
-        "icon": "folder",
-        "plans": ["creator", "full_studio"],
-        "status": "orchestration_ready",
-        "requires_integration": "Natural-language visual search needs a connected media-indexing service; filename/tag/description search works today.",
-        "capabilities": [
-            "Upload video, image, audio, brand assets",
-            "Folders, tags, project associations",
-            "Duplicate detection",
-            "Secure, access-controlled storage",
-        ],
-    },
 }
 
 AGENT_ORDER = [
@@ -232,12 +202,50 @@ AGENT_ORDER = [
     "scriptwriter",
     "audio_voice",
     "trend_researcher",
-    "brand_memory",
-    "media_library",
     "social_media_manager",
     "ads_manager",
     "performance_analyst",
 ]
+
+# -----------------------------------------------------------------------
+# Account features
+# -----------------------------------------------------------------------
+# Brand Memory and Media Library are NOT agents: you don't give them a task
+# and get a result back the way you do with an agent. They're shared
+# infrastructure every agent reads from automatically, included with every
+# plan at no extra cost -- so they're deliberately kept out of AGENTS /
+# AGENT_ORDER (the agent count, the plan comparison table, the "N agents"
+# copy) and out of the subscription/permission system entirely. They only
+# require being logged in, not any particular plan.
+
+ACCOUNT_FEATURES = {
+    "brand_memory": {
+        "slug": "brand_memory",
+        "name": "Brand Memory",
+        "short_description": "One consistent brand, remembered everywhere.",
+        "icon": "bookmark",
+        "capabilities": [
+            "Multiple brand profiles per account",
+            "Colors, fonts, tone of voice, guidelines",
+            "Other agents read the active profile automatically",
+            "Nothing saved as confirmed without your approval",
+        ],
+    },
+    "media_library": {
+        "slug": "media_library",
+        "name": "Media Library",
+        "short_description": "Every asset, organized and searchable.",
+        "icon": "folder",
+        "capabilities": [
+            "Upload video, image, audio, brand assets",
+            "Folders, tags, project associations",
+            "Duplicate detection",
+            "Secure, access-controlled storage",
+        ],
+    },
+}
+
+ACCOUNT_FEATURE_ORDER = ["brand_memory", "media_library"]
 
 
 def agents_for_plan(plan_slug):
@@ -277,8 +285,8 @@ INTEGRATIONS = {
         "env_vars": ["STRIPE_SECRET_KEY", "STRIPE_PUBLISHABLE_KEY"],
     },
     "llm_provider": {
-        "label": "Language model API (Scriptwriter / Trend Researcher / Campaign Planner)",
-        "env_vars": ["LLM_API_KEY"],
+        "label": "OpenAI API key (Scriptwriter / Trend Researcher / Campaign Planner)",
+        "env_vars": ["OPENAI_API_KEY"],
     },
     "video_processing": {
         "label": "Video processing engine (Video Editor / Color Grading)",

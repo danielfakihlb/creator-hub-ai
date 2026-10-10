@@ -65,4 +65,12 @@ app = create_app()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    # Debug mode is for local development only -- it must stay OFF on any
+    # publicly-reachable deployment (it would otherwise expose an
+    # interactive Python debugger to the internet). It's on by default
+    # here for convenience while building; set FLASK_DEBUG=0 to turn it
+    # off, which any hosting provider should do automatically since they
+    # won't set FLASK_DEBUG at all... so to be safe, we default debug OFF
+    # unless FLASK_DEBUG=1 is explicitly set.
+    debug_mode = os.environ.get("FLASK_DEBUG") == "1"
+    app.run(host="0.0.0.0", port=port, debug=debug_mode)

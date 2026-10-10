@@ -4,7 +4,7 @@
 
 <section class="hero">
   <div class="container">
-    <div class="badge badge-creator" style="margin-bottom:22px;">{{ ic.icon('sparkle',13) }} 11 specialized AI agents, one workspace</div>
+    <div class="badge badge-creator" style="margin-bottom:22px;">{{ ic.icon('sparkle',13) }} {{ agents|length }} specialized AI agents, one workspace</div>
     <h1>Your Entire Creative Team.<br>One AI Platform.</h1>
     <p class="hero-sub">Create, edit, and manage your content with specialized AI agents working together in one powerful workspace &mdash; instead of switching between a dozen different tools.</p>
     <div class="hero-cta">
@@ -18,7 +18,7 @@
 <section class="section" id="agents">
   <div class="container">
     <div class="section-label">The agents</div>
-    <h2 class="section-title">Eleven specialists. Zero context switching.</h2>
+    <h2 class="section-title">A specialist for every part of the job.</h2>
     <p class="section-sub">Each agent is built for one job and hands its work to the next &mdash; so a raw clip can become a graded, scripted, captioned, published post without leaving Creator Hub AI.</p>
     <div class="grid grid-3">
       {% for agent in agents %}
@@ -38,6 +38,7 @@
       </div>
       {% endfor %}
     </div>
+    <p class="text-tertiary text-sm mt-4" style="text-align:center;">Every plan also includes Brand Memory and a Media Library built in &mdash; shared infrastructure every agent above reads from, not separate paid agents.</p>
   </div>
 </section>
 

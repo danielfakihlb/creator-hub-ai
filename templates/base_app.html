@@ -35,7 +35,7 @@
       {% elif g_plan.slug != 'full_studio' %}
         <a href="{{ url_for('billing.pricing') }}" class="text-sm" style="color:var(--brand-400); font-weight:600;">Upgrade to Full Studio &rarr;</a>
       {% else %}
-        <span class="text-tertiary text-sm">All 11 agents unlocked</span>
+        <span class="text-tertiary text-sm">All {{ cfg.AGENT_ORDER|length }} agents unlocked</span>
       {% endif %}
     </div>
   </aside>

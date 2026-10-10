@@ -4,7 +4,7 @@
 <div class="page-header">
   <div>
     <div class="page-title">AI Agents</div>
-    <div class="page-subtitle">Eleven specialists, assignable to plans by configuration &mdash; not hardcoded.</div>
+    <div class="page-subtitle">{{ agent_rows|length }} specialists, assignable to plans by configuration &mdash; not hardcoded.</div>
   </div>
 </div>
 
@@ -36,5 +36,21 @@
     </a>
   </div>
   {% endfor %}
+</div>
+
+<div class="mt-6">
+  <h3 style="font-size:15px; margin-bottom:4px;">Also included with your account</h3>
+  <p class="text-secondary text-sm mb-3">Not agents &mdash; shared infrastructure every agent above reads from automatically, included on every plan at no extra cost.</p>
+  <div class="grid grid-2">
+    {% for feat in account_features %}
+    <a href="{{ url_for('brand.settings') if feat.slug=='brand_memory' else url_for('media.library') }}" class="card card-hover flex items-center gap-3" style="padding:16px 18px;">
+      <div class="agent-icon">{{ ic.icon(feat.icon, 20) }}</div>
+      <div>
+        <div style="font-weight:650; font-size:14.5px;">{{ feat.name }}</div>
+        <div class="text-secondary text-sm mt-1">{{ feat.short_description }}</div>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
 </div>
 {% endblock %}

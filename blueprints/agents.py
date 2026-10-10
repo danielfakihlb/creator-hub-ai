@@ -3,17 +3,17 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash
 import config
 import access
 import database as db
+import llm_client
 
 bp = Blueprint("agents", __name__)
 
-# These three agents already have a dedicated, full-featured section of the
-# app (per spec sections: Brand Memory -> Brand Settings, Media Library ->
-# Media Library page, Campaign Planner -> Campaign Workspace). Rather than
-# duplicate that UI inside a generic "agent workspace" page, the agent
-# directory card opens the real page directly.
+# Campaign Planner already has a dedicated, full-featured section of the app
+# (the Campaign Workspace). Rather than duplicate that UI inside a generic
+# "agent workspace" page, its directory card opens the real page directly.
+# (Brand Memory and Media Library used to be here too, but they aren't
+# agents -- see config.ACCOUNT_FEATURES -- so they're reached from the
+# sidebar / the "Also included" section instead of /agents/<slug>.)
 DEDICATED_PAGE_REDIRECTS = {
-    "brand_memory": "brand.settings",
-    "media_library": "media.library",
     "campaign_planner": "campaigns.list_view",
 }
 
@@ -32,6 +32,29 @@ AGENT_INTEGRATIONS = {
 }
 
 
+def _run_scriptwriter(user, request_summary):
+    """Real processing for the Scriptwriter agent: an actual call to OpenAI.
+
+    Uses the creator's first Brand Memory profile (if any) for tone/voice
+    context. Returns (ok, result_text, error_message) -- never invents a
+    script if the call fails.
+    """
+    profiles = db.list_brand_profiles(user["id"])
+    brand_profile = dict(profiles[0]) if profiles else None
+    return llm_client.generate_script(request_summary, brand_profile=brand_profile)
+
+
+# Agents with real, working processing wired up. Every other agent still
+# needs its backend built even once its integration key is connected --
+# AGENT_INTEGRATIONS only tracks whether the *credential* is present, this
+# tracks whether we actually call out and do something with it. Keeping
+# these separate means a configured-but-unbuilt integration never gets
+# silently marked "running" with nothing actually happening behind it.
+AGENT_HANDLERS = {
+    "scriptwriter": _run_scriptwriter,
+}
+
+
 @bp.route("/agents")
 @access.login_required
 def directory():
@@ -44,7 +67,11 @@ def directory():
             "unlocked": plan_slug is not None and config.plan_includes_agent(plan_slug, slug),
             "required_plan": config.cheapest_plan_for_agent(slug),
         })
-    return render_template("agents_directory.html", title="AI Agents", active="agents", agent_rows=agent_rows)
+    account_features = [config.ACCOUNT_FEATURES[s] for s in config.ACCOUNT_FEATURE_ORDER]
+    return render_template(
+        "agents_directory.html", title="AI Agents", active="agents",
+        agent_rows=agent_rows, account_features=account_features,
+    )
 
 
 @bp.route("/agents/<agent_slug>", methods=["GET", "POST"])
@@ -78,20 +105,33 @@ def detail(agent_slug):
         request_summary = request.form.get("request_summary", "").strip()
         if not request_summary:
             flash("Describe what you'd like this agent to do.", "danger")
-        else:
-            if integrations_ready:
-                # Real processing would be dispatched to the connected
-                # service here. None is connected in this build, so this
-                # branch is unreachable until you add real credentials --
-                # it is left in place as the integration point.
-                db.log_agent_task(user["id"], agent_slug, request_summary, status="running")
-                flash("Task queued.", "info")
+        elif integrations_ready and agent_slug in AGENT_HANDLERS:
+            # The integration key is present AND real processing is built
+            # for this agent -- actually call out and get a real result.
+            # This can take a few seconds (it's a live API call), and it
+            # never fakes success: whatever comes back is exactly what's
+            # stored and shown below.
+            ok, result_text, error_text = AGENT_HANDLERS[agent_slug](user, request_summary)
+            if ok:
+                db.log_agent_task(user["id"], agent_slug, request_summary, status="completed", result_summary=result_text)
+                flash("Done -- see the result below.", "success")
             else:
-                db.log_agent_task(
-                    user["id"], agent_slug, request_summary, status="needs_integration",
-                    error_message="This agent needs a connected integration before it can produce a real result.",
-                )
-                flash("Request saved. This agent needs an integration connected (see below) before it can run for real.", "warning")
+                db.log_agent_task(user["id"], agent_slug, request_summary, status="failed", error_message=error_text)
+                flash(f"The request couldn't be completed: {error_text}", "danger")
+        elif integrations_ready:
+            # Credential is connected, but this agent's real processing
+            # isn't built yet -- stay honest rather than claim it ran.
+            db.log_agent_task(
+                user["id"], agent_slug, request_summary, status="needs_integration",
+                error_message="The integration is connected, but this agent's real processing hasn't been built yet.",
+            )
+            flash("Request saved. This agent's integration is connected, but its real processing isn't built yet.", "warning")
+        else:
+            db.log_agent_task(
+                user["id"], agent_slug, request_summary, status="needs_integration",
+                error_message="This agent needs a connected integration before it can produce a real result.",
+            )
+            flash("Request saved. This agent needs an integration connected (see below) before it can run for real.", "warning")
         return redirect(url_for("agents.detail", agent_slug=agent_slug))
 
     recent_tasks = db.list_agent_tasks(user["id"], agent_slug=agent_slug, limit=10)

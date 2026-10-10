@@ -13,7 +13,7 @@
       <span class="price-amount" style="font-size:24px;">${{ required_plan.price_usd if required_plan else 80 }}<span>/mo</span></span>
     </div>
     <ul class="pricing-list">
-      <li><span class="check">{{ ic.icon('check',15) }}</span> All 11 AI agents, including this one</li>
+      <li><span class="check">{{ ic.icon('check',15) }}</span> All {{ cfg.AGENT_ORDER|length }} AI agents, including this one</li>
       <li><span class="check">{{ ic.icon('check',15) }}</span> Social publishing, ad campaigns & performance analytics</li>
       <li><span class="check">{{ ic.icon('check',15) }}</span> Priority agent orchestration for campaigns</li>
     </ul>

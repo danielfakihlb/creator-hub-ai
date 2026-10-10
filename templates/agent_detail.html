@@ -46,7 +46,7 @@
               {{ t['status'].replace('_',' ') }}
             </span>
           </div>
-          {% if t['result_summary'] %}<div class="text-secondary text-sm mt-2">{{ t['result_summary'] }}</div>{% endif %}
+          {% if t['result_summary'] %}<div class="text-secondary text-sm mt-2" style="white-space:pre-wrap;">{{ t['result_summary'] }}</div>{% endif %}
           {% if t['error_message'] %}<div class="text-tertiary text-sm mt-2">{{ t['error_message'] }}</div>{% endif %}
         </div>
         {% endfor %}
