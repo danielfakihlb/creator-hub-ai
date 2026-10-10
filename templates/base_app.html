@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+{% import "_head.html" as h %}
+{{ h.head(title) }}
+<body>
+{% import "_icons.html" as ic %}
+<div class="app-shell">
+  <aside class="sidebar">
+    <a href="{{ url_for('dashboard.home') }}" class="sidebar-brand">
+      <span class="brand-logo" style="width:26px;height:26px;"></span> Creator Hub AI
+    </a>
+
+    <a class="sidebar-link {{ 'active' if active=='dashboard' }}" href="{{ url_for('dashboard.home') }}">{{ ic.icon('home',17) }} Dashboard</a>
+    <a class="sidebar-link {{ 'active' if active=='agents' }}" href="{{ url_for('agents.directory') }}">{{ ic.icon('sparkle',17) }} AI Agents</a>
+    <a class="sidebar-link {{ 'active' if active=='projects' }}" href="{{ url_for('projects.list_view') }}">{{ ic.icon('stack',17) }} Projects</a>
+    <a class="sidebar-link {{ 'active' if active=='campaigns' }}" href="{{ url_for('campaigns.list_view') }}">{{ ic.icon('flag',17) }} Campaigns</a>
+    <a class="sidebar-link {{ 'active' if active=='media' }}" href="{{ url_for('media.library') }}">{{ ic.icon('image',17) }} Media Library</a>
+    <a class="sidebar-link {{ 'active' if active=='brand' }}" href="{{ url_for('brand.settings') }}">{{ ic.icon('bookmark',17) }} Brand Settings</a>
+
+    <div class="sidebar-section-label">Account</div>
+    <a class="sidebar-link {{ 'active' if active=='billing' }}" href="{{ url_for('billing.subscription') }}">{{ ic.icon('grid',17) }} Subscription</a>
+    <a class="sidebar-link {{ 'active' if active=='account' }}" href="{{ url_for('account.settings') }}">{{ ic.icon('settings',17) }} Account Settings</a>
+    {% if g_user and g_user['is_admin'] %}
+    <a class="sidebar-link {{ 'active' if active=='admin' }}" href="{{ url_for('admin.overview') }}">{{ ic.icon('shield',17) }} Admin</a>
+    {% endif %}
+    <a class="sidebar-link" href="{{ url_for('auth.logout') }}">{{ ic.icon('logout',17) }} Log out</a>
+
+    <div class="sidebar-plan-pill">
+      <div class="flex justify-between items-center mb-1">
+        <strong>{{ g_plan['name'] if g_plan else 'No plan' }}</strong>
+        {% if g_plan %}<span class="{{ 'badge badge-studio' if g_plan.slug=='full_studio' else 'badge badge-creator' }}">{{ '$'+g_plan.price_usd|string+'/mo' }}</span>{% endif %}
+      </div>
+      {% if not g_plan %}
+        <a href="{{ url_for('billing.pricing') }}" class="btn btn-primary btn-sm btn-block mt-2">Choose a plan</a>
+      {% elif g_plan.slug != 'full_studio' %}
+        <a href="{{ url_for('billing.pricing') }}" class="text-sm" style="color:var(--brand-400); font-weight:600;">Upgrade to Full Studio &rarr;</a>
+      {% else %}
+        <span class="text-tertiary text-sm">All 11 agents unlocked</span>
+      {% endif %}
+    </div>
+  </aside>
+
+  <div class="main-col">
+    <div class="topbar">
+      <div>
+        <button class="btn btn-ghost btn-sm" data-nav-toggle style="display:none;">Menu</button>
+      </div>
+      <div class="flex items-center gap-3">
+        <button class="theme-toggle" data-theme-toggle title="Toggle theme">{{ ic.icon('sun', 16) }}</button>
+        <div class="flex items-center gap-2 text-sm">
+          <span style="width:30px;height:30px;border-radius:50%;background:var(--bg-surface-3);display:flex;align-items:center;justify-content:center;">{{ ic.icon('user',15) }}</span>
+          <span>{{ g_user['full_name'] if g_user else '' }}</span>
+        </div>
+      </div>
+    </div>
+    <div class="page">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }}">{{ message }}</div>
+        {% endfor %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </div>
+  </div>
+</div>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

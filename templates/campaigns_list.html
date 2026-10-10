@@ -1,0 +1,26 @@
+{% extends "base_app.html" %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <div class="page-title">Campaigns</div>
+    <div class="page-subtitle">Multi-agent workflows coordinated by the Campaign Planner.</div>
+  </div>
+  <a href="{{ url_for('campaigns.create') }}" class="btn btn-primary">New campaign</a>
+</div>
+
+{% if campaigns %}
+<div class="grid grid-3">
+  {% for c in campaigns %}
+  <a href="{{ url_for('campaigns.detail', campaign_id=c['id']) }}" class="card card-hover">
+    <div class="flex justify-between items-start">
+      <strong>{{ c['name'] }}</strong>
+      <span class="badge badge-neutral">{{ c['status'].replace('_',' ') }}</span>
+    </div>
+    <p class="text-secondary text-sm mt-2">{{ c['objective'] or 'No objective set' }}</p>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card empty-state">No campaigns yet. Try: "Create a 14-day content campaign for my brand."</div>
+{% endif %}
+{% endblock %}

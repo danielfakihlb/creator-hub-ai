@@ -1,0 +1,18 @@
+{% extends "base_app.html" %}
+{% block content %}
+<div class="page-header"><div class="page-title">New campaign</div></div>
+<div class="card" style="max-width:520px;">
+  <form method="post">
+    <div class="field">
+      <label>Campaign name</label>
+      <input type="text" name="name" required placeholder="e.g. 14-Day Fight Camp Launch">
+    </div>
+    <div class="field">
+      <label>Objective</label>
+      <textarea name="objective" rows="3" placeholder="What should this campaign accomplish?"></textarea>
+    </div>
+    <div class="alert alert-info">The Campaign Planner will break this into tasks across Trend Research, Scriptwriting, Video Editing, Color Grading, Audio, and (on Full Studio) Social, Ads & Analytics &mdash; respecting your current plan.</div>
+    <button type="submit" class="btn btn-primary btn-block">Create campaign</button>
+  </form>
+</div>
+{% endblock %}

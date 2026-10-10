@@ -1,0 +1,68 @@
+"""Creator Hub AI -- Flask application factory."""
+
+import os
+from flask import Flask, g
+
+import config
+import database as db
+import access
+
+
+def create_app():
+    app = Flask(__name__)
+    app.secret_key = config.SECRET_KEY
+
+    db.init_db()  # idempotent -- CREATE TABLE IF NOT EXISTS
+    db.seed_demo_account()
+
+    from blueprints.marketing import bp as marketing_bp
+    from blueprints.auth import bp as auth_bp
+    from blueprints.dashboard import bp as dashboard_bp
+    from blueprints.agents import bp as agents_bp
+    from blueprints.projects import bp as projects_bp
+    from blueprints.media import bp as media_bp
+    from blueprints.brand import bp as brand_bp
+    from blueprints.campaigns import bp as campaigns_bp
+    from blueprints.billing import bp as billing_bp
+    from blueprints.account import bp as account_bp
+    from blueprints.admin import bp as admin_bp
+
+    app.register_blueprint(marketing_bp)
+    app.register_blueprint(auth_bp)
+    app.register_blueprint(dashboard_bp)
+    app.register_blueprint(agents_bp)
+    app.register_blueprint(projects_bp)
+    app.register_blueprint(media_bp)
+    app.register_blueprint(brand_bp)
+    app.register_blueprint(campaigns_bp)
+    app.register_blueprint(billing_bp)
+    app.register_blueprint(account_bp)
+    app.register_blueprint(admin_bp)
+
+    @app.context_processor
+    def inject_globals():
+        user = access.current_user()
+        plan_slug = access.current_plan_slug()
+        plan = config.PLANS.get(plan_slug) if plan_slug else None
+        return {
+            "g_user": user,
+            "g_plan": plan,
+            "cfg": config,
+        }
+
+    @app.errorhandler(403)
+    def forbidden(e):
+        return "403 Forbidden -- you don't have permission to view this.", 403
+
+    @app.errorhandler(404)
+    def not_found(e):
+        return "404 -- that page doesn't exist.", 404
+
+    return app
+
+
+app = create_app()
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=True)

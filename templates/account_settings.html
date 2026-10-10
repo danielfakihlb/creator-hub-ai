@@ -1,0 +1,37 @@
+{% extends "base_app.html" %}
+{% import "_icons.html" as ic %}
+{% block content %}
+<div class="page-header"><div class="page-title">Account Settings</div></div>
+
+<div class="grid grid-2" style="grid-template-columns: 1fr 1.3fr;">
+  <div class="card" style="align-self:start;">
+    <h3 style="font-size:15px; margin-bottom:14px;">Profile</h3>
+    <div class="field"><label>Full name</label><input type="text" value="{{ g_user['full_name'] }}" disabled></div>
+    <div class="field"><label>Email</label><input type="text" value="{{ g_user['email'] }}" disabled></div>
+    <div class="text-tertiary text-sm">Editing profile fields isn't wired up yet in this first build.</div>
+    <div class="divider"></div>
+    <h3 style="font-size:15px; margin-bottom:10px;">Data & privacy</h3>
+    <p class="text-secondary text-sm">Your uploaded media and project data stay tied to your account. Export and deletion tools are planned but not implemented in this build.</p>
+  </div>
+
+  <div class="card" style="align-self:start;">
+    <h3 style="font-size:15px; margin-bottom:6px;">Connected integrations</h3>
+    <p class="text-secondary text-sm mb-4">Nothing here is faked: an agent's real processing only runs once its integration shows "Connected."</p>
+    <div class="flex-col gap-2">
+      {% for key, info in integrations_status.items() %}
+      <div class="flex justify-between items-center" style="padding:10px 0; border-bottom:1px solid var(--border-subtle);">
+        <div>
+          <div style="font-weight:600; font-size:13.5px;">{{ info.label }}</div>
+          <div class="text-tertiary text-sm">env: {{ info.env_vars|join(', ') }}</div>
+        </div>
+        {% if info.configured %}
+        <span class="badge badge-success">{{ ic.icon('check',11) }} Connected</span>
+        {% else %}
+        <span class="badge badge-warning">Setup required</span>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

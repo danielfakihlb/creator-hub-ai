@@ -1,0 +1,47 @@
+{% extends "base_app.html" %}
+{% import "_icons.html" as ic %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <div class="page-title">{{ campaign['name'] }}</div>
+    <div class="page-subtitle">{{ campaign['objective'] or 'No objective set' }}</div>
+  </div>
+  <span class="badge badge-neutral">{{ campaign['status'].replace('_',' ') }}</span>
+</div>
+
+<div class="card" style="padding:0;">
+  <table class="table">
+    <thead><tr><th>Agent</th><th>Task</th><th>Status</th><th>Notes</th><th></th></tr></thead>
+    <tbody>
+      {% for t in tasks %}
+      {% set agent = agents.get(t['agent_slug']) %}
+      <tr>
+        <td class="flex items-center gap-2" style="font-weight:600;">
+          {% if agent %}{{ ic.icon(agent.icon, 15) }} {{ agent.name }}{% else %}{{ t['agent_slug'] }}{% endif %}
+        </td>
+        <td class="text-secondary">{{ t['title'] }}</td>
+        <td>
+          <span class="status-pill">
+            <span class="dot" style="background: {{ {'done':'var(--success-500)','in_progress':'var(--info-500)','blocked':'var(--danger-500)','needs_approval':'var(--warning-500)'}.get(t['status'], 'var(--text-tertiary)') }};"></span>
+            {{ t['status'].replace('_',' ') }}
+          </span>
+        </td>
+        <td class="text-tertiary text-sm">{{ t['output_summary'] or '—' }}</td>
+        <td>
+          {% if t['status'] == 'needs_approval' %}
+          <form method="post" action="{{ url_for('campaigns.approve_task', campaign_id=campaign['id'], task_id=t['id']) }}">
+            <button type="submit" class="btn btn-sm btn-primary">Approve</button>
+          </form>
+          {% elif t['status'] == 'blocked' %}
+          <a href="{{ url_for('billing.pricing') }}" class="btn btn-sm btn-studio">Upgrade</a>
+          {% elif agent %}
+          <a href="{{ url_for('agents.detail', agent_slug=agent.slug) }}" class="btn btn-sm btn-secondary">Open</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="text-tertiary text-sm mt-3">Tasks never show as "done" because the planner assumes so &mdash; only once the underlying agent work (or your approval) confirms it.</p>
+{% endblock %}

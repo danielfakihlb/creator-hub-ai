@@ -1,0 +1,73 @@
+{% extends "base_app.html" %}
+{% import "_icons.html" as ic %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <div class="page-title">Media Library</div>
+    <div class="page-subtitle">Organize, search, and reuse every asset across projects.</div>
+  </div>
+</div>
+
+<div class="alert alert-info">Metadata, tags, and search work today. Storing the actual file bytes needs a connected cloud storage integration (see Account Settings) &mdash; until then, assets are tracked by filename and description.</div>
+
+<div class="grid grid-2" style="grid-template-columns: 1fr 1.6fr;">
+  <div class="card" style="align-self:start;">
+    <h3 style="font-size:15px; margin-bottom:14px;">Add an asset</h3>
+    <form method="post">
+      <div class="field">
+        <label>Filename</label>
+        <input type="text" name="filename" placeholder="pad-work-session.mp4" required>
+      </div>
+      <div class="field">
+        <label>Type</label>
+        <select name="media_type">
+          <option value="video">Video</option>
+          <option value="image">Image</option>
+          <option value="audio">Audio</option>
+          <option value="brand_asset">Brand asset</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Folder</label>
+        <input type="text" name="folder" placeholder="Uploads">
+      </div>
+      <div class="field">
+        <label>Description</label>
+        <textarea name="description" rows="2" placeholder="e.g. Pad work session, Phuket gym"></textarea>
+      </div>
+      <div class="field">
+        <label>Tags</label>
+        <input type="text" name="tags" placeholder="training, padwork, phuket">
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">Add to library</button>
+    </form>
+  </div>
+
+  <div>
+    <form method="get" class="flex gap-2 mb-4">
+      <input type="text" name="q" value="{{ search }}" placeholder="Search filename, description, tags..." style="flex:1; background:var(--bg-surface-2); border:1px solid var(--border-strong); border-radius:8px; padding:11px 13px; color:var(--text-primary);">
+      <button type="submit" class="btn btn-secondary">{{ ic.icon('search',16) }} Search</button>
+    </form>
+
+    {% if assets %}
+    <div class="card" style="padding:0;">
+      <table class="table">
+        <thead><tr><th>Filename</th><th>Type</th><th>Folder</th><th>Tags</th></tr></thead>
+        <tbody>
+          {% for a in assets %}
+          <tr>
+            <td style="font-weight:600;">{{ a['filename'] }}</td>
+            <td><span class="badge badge-neutral">{{ a['media_type'] }}</span></td>
+            <td class="text-secondary">{{ a['folder'] }}</td>
+            <td class="text-secondary">{{ a['tags'] }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="card empty-state">No assets match. Try a different search, or add your first asset.</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

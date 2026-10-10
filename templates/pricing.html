@@ -1,0 +1,48 @@
+{% extends "base_marketing.html" %}
+{% import "_icons.html" as ic %}
+{% block content %}
+<section class="section" style="padding-top:56px;">
+  <div class="container">
+    <div class="section-label">Pricing</div>
+    <h2 class="section-title">Compare plans</h2>
+    <p class="section-sub">Every agent is assigned to a plan through configuration, so this list reflects exactly what admins have configured &mdash; nothing is hardcoded.</p>
+
+    <div class="grid grid-2" style="max-width:760px; margin:0 auto 56px;">
+      {% for slug in plan_order %}
+        {% set plan = plans[slug] %}
+        <div class="card pricing-card {{ 'featured' if slug=='full_studio' }}">
+          {% if slug == 'full_studio' %}<span class="badge badge-studio" style="position:absolute; top:22px; right:22px;">Most complete</span>{% endif %}
+          <div>
+            <div class="agent-name" style="font-size:18px;">{{ plan.name }}</div>
+            <div class="text-secondary text-sm mt-1">{{ plan.tagline }}</div>
+          </div>
+          <div class="price-amount">${{ plan.price_usd }}<span>/month</span></div>
+          <a href="{{ url_for('auth.signup') }}?plan={{ slug }}" class="btn {{ 'btn-studio' if slug=='full_studio' else 'btn-primary' }} btn-block">Choose {{ plan.name }}</a>
+        </div>
+      {% endfor %}
+    </div>
+
+    <div class="card" style="padding:0; overflow:hidden;">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Agent</th>
+            <th style="text-align:center;">Creator &mdash; $50/mo</th>
+            <th style="text-align:center;">Full Studio &mdash; $80/mo</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td class="flex items-center gap-2" style="font-weight:600;">{{ ic.icon(row.agent.icon, 16) }} {{ row.agent.name }}</td>
+            <td style="text-align:center;">{% if row.in_creator %}<span style="color:var(--success-500);">{{ ic.icon('check',16) }}</span>{% else %}<span class="text-tertiary">&mdash;</span>{% endif %}</td>
+            <td style="text-align:center;">{% if row.in_full_studio %}<span style="color:var(--success-500);">{{ ic.icon('check',16) }}</span>{% else %}<span class="text-tertiary">&mdash;</span>{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="text-tertiary text-sm mt-3" style="text-align:center;">Social Media Manager, Ads Manager, and Performance Analyst are exclusive to Full Studio. The Creator-plan lineup above is admin-configurable.</p>
+  </div>
+</section>
+{% endblock %}

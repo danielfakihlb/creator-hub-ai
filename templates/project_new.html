@@ -1,0 +1,27 @@
+{% extends "base_app.html" %}
+{% block content %}
+<div class="page-header"><div class="page-title">New project</div></div>
+<div class="card" style="max-width:520px;">
+  <form method="post">
+    <div class="field">
+      <label>Project name</label>
+      <input type="text" name="name" required placeholder="e.g. Fight Camp Vlog Series">
+    </div>
+    <div class="field">
+      <label>Description</label>
+      <textarea name="description" rows="3" placeholder="What is this project for?"></textarea>
+    </div>
+    <div class="field">
+      <label>Brand profile (optional)</label>
+      <select name="brand_profile_id">
+        <option value="">No brand profile</option>
+        {% for bp in brand_profiles %}
+        <option value="{{ bp['id'] }}">{{ bp['name'] }}</option>
+        {% endfor %}
+      </select>
+      <div class="field-hint">Agents will automatically apply this brand's guidelines.</div>
+    </div>
+    <button type="submit" class="btn btn-primary btn-block">Create project</button>
+  </form>
+</div>
+{% endblock %}

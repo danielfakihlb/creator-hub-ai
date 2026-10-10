@@ -1,0 +1,39 @@
+{% extends "base_app.html" %}
+{% block content %}
+<div class="page-header"><div class="page-title">Subscription</div></div>
+
+<div class="card" style="max-width:560px;">
+  {% if subscription and plan %}
+  <div class="flex justify-between items-center">
+    <div>
+      <div class="text-tertiary text-sm">Current plan</div>
+      <div style="font-size:20px; font-weight:700;">{{ plan.name }}</div>
+    </div>
+    <span class="{{ 'badge badge-studio' if plan.slug=='full_studio' else 'badge badge-creator' }}">${{ plan.price_usd }}/mo</span>
+  </div>
+  <div class="divider"></div>
+  <div class="grid grid-2 text-sm">
+    <div><span class="text-tertiary">Status</span><br><span class="badge {{ 'badge-success' if subscription['status']=='active' else 'badge-warning' }} mt-1">{{ subscription['status'].replace('_',' ') }}</span></div>
+    <div><span class="text-tertiary">Billing period</span><br>{{ subscription['billing_period_start'] or 'Not billed yet (no payment provider connected)' }}</div>
+  </div>
+  <div class="divider"></div>
+  <div class="flex gap-3">
+    {% if plan.slug != 'full_studio' %}
+    <a href="{{ url_for('billing.checkout', plan='full_studio') }}" class="btn btn-studio">Upgrade to Full Studio</a>
+    {% else %}
+    <a href="{{ url_for('billing.checkout', plan='creator') }}" class="btn btn-secondary">Downgrade to Creator</a>
+    {% endif %}
+    {% if subscription['status'] == 'active' %}
+    <form method="post" action="{{ url_for('billing.cancel') }}" onsubmit="return confirm('Cancel your subscription?');">
+      <button type="submit" class="btn btn-ghost">Cancel subscription</button>
+    </form>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <p>You don't have an active plan.</p>
+    <a href="{{ url_for('billing.pricing') }}" class="btn btn-primary mt-3">Choose a plan</a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

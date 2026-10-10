@@ -1,0 +1,27 @@
+{% extends "base_app.html" %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <div class="page-title">Projects</div>
+    <div class="page-subtitle">Everything tied to a project: media, scripts, edits, and campaigns.</div>
+  </div>
+  <a href="{{ url_for('projects.create') }}" class="btn btn-primary">New project</a>
+</div>
+
+{% if projects %}
+<div class="grid grid-3">
+  {% for p in projects %}
+  <a href="{{ url_for('projects.detail', project_id=p['id']) }}" class="card card-hover">
+    <div class="flex justify-between items-start">
+      <strong>{{ p['name'] }}</strong>
+      <span class="badge badge-neutral">{{ p['status'] }}</span>
+    </div>
+    <p class="text-secondary text-sm mt-2">{{ p['description'] or 'No description' }}</p>
+    <div class="text-tertiary text-sm mt-3">Updated {{ p['updated_at'] }}</div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card empty-state">No projects yet. <a href="{{ url_for('projects.create') }}" style="color:var(--brand-400); font-weight:600;">Create your first project</a>.</div>
+{% endif %}
+{% endblock %}

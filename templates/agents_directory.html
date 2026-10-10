@@ -1,0 +1,40 @@
+{% extends "base_app.html" %}
+{% import "_icons.html" as ic %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <div class="page-title">AI Agents</div>
+    <div class="page-subtitle">Eleven specialists, assignable to plans by configuration &mdash; not hardcoded.</div>
+  </div>
+</div>
+
+<div class="grid grid-3">
+  {% for row in agent_rows %}
+  {% set agent = row.agent %}
+  <div class="card agent-card">
+    <div class="agent-card-top">
+      <div class="agent-icon">{{ ic.icon(agent.icon, 20) }}</div>
+      {% if not row.unlocked %}
+        <span class="badge badge-studio">{{ ic.icon('lock',11) }} {{ row.required_plan.name if row.required_plan else 'Locked' }}</span>
+      {% elif agent.plans == ['full_studio'] %}
+        <span class="badge badge-studio">Full Studio</span>
+      {% else %}
+        <span class="badge badge-creator">Included</span>
+      {% endif %}
+    </div>
+    <div>
+      <div class="agent-name">{{ agent.name }}</div>
+      <div class="agent-desc mt-1">{{ agent.short_description }}</div>
+    </div>
+    <ul class="agent-caps">
+      {% for cap in agent.capabilities[:3] %}
+      <li>{{ cap }}</li>
+      {% endfor %}
+    </ul>
+    <a href="{{ url_for('agents.detail', agent_slug=agent.slug) }}" class="btn {{ 'btn-secondary' if row.unlocked else 'btn-studio' }} btn-block mt-2">
+      {{ 'Open Agent' if row.unlocked else 'Unlock with ' + row.required_plan.name }}
+    </a>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

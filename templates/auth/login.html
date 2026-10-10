@@ -1,0 +1,19 @@
+{% extends "base_auth.html" %}
+{% block content %}
+<h2 style="margin-bottom:6px;">Welcome back</h2>
+<p class="text-secondary text-sm mb-4">Log in to your creative workspace.</p>
+<form method="post" action="{{ url_for('auth.login') }}">
+  <div class="field">
+    <label>Email</label>
+    <input type="email" name="email" required autofocus>
+  </div>
+  <div class="field">
+    <label>Password</label>
+    <input type="password" name="password" required>
+  </div>
+  <button type="submit" class="btn btn-primary btn-block">Log in</button>
+</form>
+<p class="text-sm text-secondary mt-4" style="text-align:center;">New to Creator Hub AI? <a href="{{ url_for('auth.signup') }}" style="color:var(--brand-400); font-weight:600;">Create an account</a></p>
+<div class="divider"></div>
+<p class="text-tertiary text-sm" style="text-align:center;">Demo account: <strong>demo@creatorhub.ai</strong> / <strong>demo12345</strong></p>
+{% endblock %}

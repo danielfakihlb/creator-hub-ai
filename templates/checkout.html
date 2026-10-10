@@ -1,0 +1,27 @@
+{% extends "base_app.html" %}
+{% block content %}
+<div class="page-header"><div class="page-title">Checkout &mdash; {{ plan.name }}</div></div>
+
+<div class="card" style="max-width:480px;">
+  <div class="flex justify-between items-center mb-4">
+    <strong>{{ plan.name }} plan</strong>
+    <span class="price-amount" style="font-size:22px;">${{ plan.price_usd }}<span>/mo</span></span>
+  </div>
+
+  {% if stripe_ready %}
+    <div class="alert alert-info">Stripe is connected. Live checkout isn't wired up in this build yet.</div>
+  {% else %}
+    <div class="alert alert-warning">
+      <strong>Payment setup required.</strong> No payment provider is connected yet, so real billing can't run. Connect Stripe (or another provider) under Account Settings &rarr; Integrations to accept real payments.
+    </div>
+    <form method="post">
+      <div class="alert alert-danger" style="margin-bottom:14px;">
+        <strong>Test mode only &mdash; no real charge.</strong> This exists so you can try the full upgrade/downgrade flow while building. Remove this before accepting real customers.
+      </div>
+      <input type="hidden" name="confirm_test_mode" value="yes">
+      <button type="submit" class="btn btn-studio btn-block">Simulate successful payment (test mode)</button>
+    </form>
+  {% endif %}
+  <a href="{{ url_for('billing.pricing') }}" class="btn btn-ghost btn-block mt-2">Back to pricing</a>
+</div>
+{% endblock %}

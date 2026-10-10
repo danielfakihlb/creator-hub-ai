@@ -1,0 +1,61 @@
+{% extends "base_app.html" %}
+{% import "_icons.html" as ic %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <div class="page-title">Admin</div>
+    <div class="page-subtitle">Users, plan assignment, and system health &mdash; visible to admins only.</div>
+  </div>
+</div>
+
+<div class="grid grid-2" style="grid-template-columns: 1.3fr 1fr; margin-bottom:24px;">
+  <div class="card" style="padding:0;">
+    <div style="padding:18px 22px 0;"><h3 style="font-size:15px;">Users</h3></div>
+    <table class="table">
+      <thead><tr><th>Name</th><th>Email</th><th>Plan</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for row in users_with_plans %}
+        <tr>
+          <td style="font-weight:600;">{{ row.user['full_name'] }}{% if row.user['is_admin'] %} <span class="badge badge-neutral">admin</span>{% endif %}</td>
+          <td class="text-secondary">{{ row.user['email'] }}</td>
+          <td>{% if row.subscription %}{{ plans[row.subscription['plan_slug']].name }}{% else %}<span class="text-tertiary">None</span>{% endif %}</td>
+          <td>{% if row.subscription %}<span class="badge {{ 'badge-success' if row.subscription['status']=='active' else 'badge-warning' }}">{{ row.subscription['status'].replace('_',' ') }}</span>{% else %}—{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card" style="align-self:start;">
+    <h3 style="font-size:15px; margin-bottom:12px;">System integrations</h3>
+    <div class="flex-col gap-2">
+      {% for key, spec in integrations.items() %}
+      <div class="flex justify-between items-center text-sm" style="padding:6px 0;">
+        <span>{{ spec.label }}</span>
+        {% if integrations_status[key] %}<span class="badge badge-success">Connected</span>{% else %}<span class="badge badge-warning">Not set</span>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<div class="card" style="padding:0;">
+  <div style="padding:18px 22px 0;">
+    <h3 style="font-size:15px;">Agent &rarr; plan configuration</h3>
+    <p class="text-tertiary text-sm mt-1">Defined in <code>config.py</code>. Editing the plan editor UI to change this live is planned; for now it's a code-level config change by design, so access rules can be reviewed before shipping.</p>
+  </div>
+  <table class="table">
+    <thead><tr><th>Agent</th>{% for slug in plan_order %}<th style="text-align:center;">{{ plans[slug].name }}</th>{% endfor %}</tr></thead>
+    <tbody>
+      {% for agent in agents %}
+      <tr>
+        <td class="flex items-center gap-2" style="font-weight:600;">{{ ic.icon(agent.icon, 15) }} {{ agent.name }}</td>
+        {% for slug in plan_order %}
+        <td style="text-align:center;">{% if slug in agent.plans %}<span style="color:var(--success-500);">{{ ic.icon('check',15) }}</span>{% else %}<span class="text-tertiary">&mdash;</span>{% endif %}</td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

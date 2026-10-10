@@ -1,0 +1,47 @@
+{% extends "base_app.html" %}
+{% import "_icons.html" as ic %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <div class="page-title">{{ project['name'] }}</div>
+    <div class="page-subtitle">{{ project['description'] or 'No description' }}</div>
+  </div>
+  <a href="{{ url_for('agents.directory') }}" class="btn btn-primary">{{ ic.icon('sparkle',16) }} Work on this project</a>
+</div>
+
+<div class="grid grid-2" style="grid-template-columns: 1fr 1fr;">
+  <div class="card">
+    <h3 style="font-size:15px; margin-bottom:12px;">Media</h3>
+    {% if media %}
+    <div class="flex-col gap-2">
+      {% for m in media %}
+      <div class="flex justify-between items-center text-sm" style="padding:8px 0; border-bottom:1px solid var(--border-subtle);">
+        <span>{{ m['filename'] }}</span>
+        <span class="badge badge-neutral">{{ m['media_type'] }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="text-secondary text-sm">No media linked yet.</div>
+    {% endif %}
+    <a href="{{ url_for('media.library') }}" class="btn btn-secondary btn-sm mt-3">Open Media Library</a>
+  </div>
+
+  <div class="card">
+    <h3 style="font-size:15px; margin-bottom:12px;">Campaigns</h3>
+    {% if campaigns %}
+    <div class="flex-col gap-2">
+      {% for c in campaigns %}
+      <a href="{{ url_for('campaigns.detail', campaign_id=c['id']) }}" class="flex justify-between items-center text-sm" style="padding:8px 0; border-bottom:1px solid var(--border-subtle);">
+        <span>{{ c['name'] }}</span>
+        <span class="badge badge-neutral">{{ c['status'].replace('_',' ') }}</span>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="text-secondary text-sm">No campaigns for this project yet.</div>
+    {% endif %}
+    <a href="{{ url_for('campaigns.create') }}" class="btn btn-secondary btn-sm mt-3">Start a campaign</a>
+  </div>
+</div>
+{% endblock %}

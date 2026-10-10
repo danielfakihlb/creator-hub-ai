@@ -1,0 +1,124 @@
+{% extends "base_marketing.html" %}
+{% import "_icons.html" as ic %}
+{% block content %}
+
+<section class="hero">
+  <div class="container">
+    <div class="badge badge-creator" style="margin-bottom:22px;">{{ ic.icon('sparkle',13) }} 11 specialized AI agents, one workspace</div>
+    <h1>Your Entire Creative Team.<br>One AI Platform.</h1>
+    <p class="hero-sub">Create, edit, and manage your content with specialized AI agents working together in one powerful workspace &mdash; instead of switching between a dozen different tools.</p>
+    <div class="hero-cta">
+      <a href="{{ url_for('auth.signup') }}" class="btn btn-primary">Start creating free</a>
+      <a href="#workflow" class="btn btn-secondary">See how it works</a>
+    </div>
+    <div class="hero-note">No credit card required to explore &middot; Cancel anytime</div>
+  </div>
+</section>
+
+<section class="section" id="agents">
+  <div class="container">
+    <div class="section-label">The agents</div>
+    <h2 class="section-title">Eleven specialists. Zero context switching.</h2>
+    <p class="section-sub">Each agent is built for one job and hands its work to the next &mdash; so a raw clip can become a graded, scripted, captioned, published post without leaving Creator Hub AI.</p>
+    <div class="grid grid-3">
+      {% for agent in agents %}
+      <div class="card card-hover agent-card">
+        <div class="agent-card-top">
+          <div class="agent-icon">{{ ic.icon(agent.icon, 20) }}</div>
+          {% if agent.plans == ['full_studio'] %}
+            <span class="badge badge-studio">Full Studio</span>
+          {% else %}
+            <span class="badge badge-creator">Creator+</span>
+          {% endif %}
+        </div>
+        <div>
+          <div class="agent-name">{{ agent.name }}</div>
+          <div class="agent-desc mt-1">{{ agent.short_description }}</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<section class="section" id="workflow" style="background:var(--bg-surface);">
+  <div class="container">
+    <div class="section-label">Example workflow</div>
+    <h2 class="section-title">From raw footage to a published post</h2>
+    <p class="section-sub">Not every project needs every agent &mdash; but when you want the full pipeline, the Campaign Planner coordinates it for you.</p>
+    <div class="grid grid-4">
+      {% set steps = [
+        ("1", "Scriptwriter", "Turns your idea into a hook, script, and shot list."),
+        ("2", "Video Editor", "Finds the best moments and cuts a short-form edit."),
+        ("3", "Color Grading + Audio", "Grades the look and cleans up sound & subtitles."),
+        ("4", "Social Media Manager*", "Prepares captions and a publishing schedule.")
+      ] %}
+      {% for num, name, desc in steps %}
+      <div class="card">
+        <div class="text-tertiary text-sm mb-2">Step {{ num }}</div>
+        <div class="agent-name mb-1">{{ name }}</div>
+        <div class="agent-desc">{{ desc }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    <p class="text-tertiary text-sm" style="text-align:center; margin-top:18px;">*Full Studio plan. You approve every step &mdash; nothing publishes or spends budget without your confirmation.</p>
+  </div>
+</section>
+
+<section class="section" id="pricing">
+  <div class="container">
+    <div class="section-label">Pricing</div>
+    <h2 class="section-title">Two plans. Pick your toolkit.</h2>
+    <p class="section-sub">Start with the Creator plan, or go Full Studio for every agent and advanced publishing & analytics.</p>
+    <div class="grid grid-2" style="max-width:760px; margin:0 auto;">
+      {% for slug in plan_order %}
+        {% set plan = plans[slug] %}
+        <div class="card pricing-card {{ 'featured' if slug=='full_studio' }}">
+          {% if slug == 'full_studio' %}<span class="badge badge-studio" style="position:absolute; top:22px; right:22px;">Most complete</span>{% endif %}
+          <div>
+            <div class="agent-name" style="font-size:18px;">{{ plan.name }}</div>
+            <div class="text-secondary text-sm mt-1">{{ plan.tagline }}</div>
+          </div>
+          <div class="price-amount">${{ plan.price_usd }}<span>/month</span></div>
+          <a href="{{ url_for('auth.signup') }}?plan={{ slug }}" class="btn {{ 'btn-studio' if slug=='full_studio' else 'btn-primary' }} btn-block">Choose {{ plan.name }}</a>
+        </div>
+      {% endfor %}
+    </div>
+    <p class="text-tertiary text-sm" style="text-align:center;margin-top:16px;">
+      <a href="{{ url_for('billing.pricing') }}" style="color:var(--brand-400); font-weight:600;">Compare every agent across both plans &rarr;</a>
+    </p>
+  </div>
+</section>
+
+<section class="section" id="faq">
+  <div class="container" style="max-width:720px;">
+    <div class="section-label">FAQ</div>
+    <h2 class="section-title">Questions, answered</h2>
+    <div class="mt-6">
+      {% set faqs = [
+        ("Which agents are in the Creator plan?", "The exact Creator-plan lineup is finalized by the platform admin and shown on the Pricing page -- it's config-driven, not fixed in code, so it can evolve as the agents mature."),
+        ("What's exclusive to Full Studio?", "The AI Social Media Manager, AI Ads Manager, and AI Performance Analyst are available only on the $80/month Full Studio plan."),
+        ("Will the AI ever publish or spend money without me?", "No. Publishing requires a confirmed platform connection and your explicit action, and ad campaigns never launch or spend budget without your approval first."),
+        ("Do I need to connect my own AI/API accounts?", "Core workflows run out of the box. Agents that call external AI models, video rendering, or social platforms need those services connected under Account Settings -- and we always tell you clearly when something needs setup rather than faking a result."),
+      ] %}
+      {% for q, a in faqs %}
+      <div class="faq-item">
+        <div class="faq-q flex justify-between items-center" data-faq-toggle style="cursor:pointer;">{{ q }} {{ ic.icon('chevron-down', 16) }}</div>
+        <div class="faq-a" style="display:none;">{{ a }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<section class="section" style="text-align:center;">
+  <div class="container">
+    <h2 class="section-title">Ready to build with your AI creative team?</h2>
+    <div class="hero-cta" style="margin-top:28px;">
+      <a href="{{ url_for('auth.signup') }}" class="btn btn-primary">Start creating free</a>
+      <a href="{{ url_for('billing.pricing') }}" class="btn btn-secondary">View pricing</a>
+    </div>
+  </div>
+</section>
+
+{% endblock %}

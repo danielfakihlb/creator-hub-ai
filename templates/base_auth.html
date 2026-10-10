@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+{% import "_head.html" as h %}
+{{ h.head(title) }}
+<body style="min-height:100vh; display:flex; align-items:center; justify-content:center;">
+  <div style="width:100%; max-width:420px; padding:24px;">
+    <a href="{{ url_for('marketing.landing') }}" class="brand-mark" style="justify-content:center; margin-bottom:28px;">
+      <span class="brand-logo"></span> Creator Hub AI
+    </a>
+    <div class="card" style="padding:32px;">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }}">{{ message }}</div>
+        {% endfor %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </div>
+  </div>
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

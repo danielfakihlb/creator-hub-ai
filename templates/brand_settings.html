@@ -1,0 +1,57 @@
+{% extends "base_app.html" %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <div class="page-title">Brand Settings</div>
+    <div class="page-subtitle">Multiple brand profiles &mdash; agents automatically read whichever one a project is assigned to.</div>
+  </div>
+</div>
+
+<div class="grid grid-2" style="grid-template-columns: 1fr 1.3fr;">
+  <div class="card" style="align-self:start;">
+    <h3 style="font-size:15px; margin-bottom:14px;">New brand profile</h3>
+    <form method="post">
+      <div class="field"><label>Brand name</label><input type="text" name="name" required placeholder="e.g. AlphaLeb"></div>
+      <div class="field"><label>Description</label><textarea name="description" rows="2"></textarea></div>
+      <div class="field"><label>Tone of voice</label><input type="text" name="tone_of_voice" placeholder="Motivational, direct, no fluff"></div>
+      <div class="field"><label>Target audience</label><input type="text" name="target_audience" placeholder="Combat sports fans, 18-34"></div>
+      <div class="flex gap-3">
+        <div class="field w-full"><label>Primary color</label><input type="text" name="primary_color" placeholder="#7c5cff"></div>
+        <div class="field w-full"><label>Secondary color</label><input type="text" name="secondary_color" placeholder="#13151b"></div>
+      </div>
+      <div class="field"><label>Font family</label><input type="text" name="font_family" placeholder="Inter"></div>
+      <div class="field"><label>Preferred editing style</label><input type="text" name="preferred_style" placeholder="Dark, cinematic, high-contrast"></div>
+      <button type="submit" class="btn btn-primary btn-block">Save brand profile</button>
+    </form>
+  </div>
+
+  <div>
+    {% if profiles %}
+    <div class="flex-col gap-3">
+      {% for p in profiles %}
+      <div class="card">
+        <div class="flex justify-between items-start">
+          <strong>{{ p['name'] }}</strong>
+          <div class="flex gap-2 items-center">
+            {% if p['primary_color'] %}<span style="width:16px;height:16px;border-radius:5px;background:{{ p['primary_color'] }}; border:1px solid var(--border-strong);"></span>{% endif %}
+            <form method="post" action="{{ url_for('brand.delete', profile_id=p['id']) }}" onsubmit="return confirm('Remove this brand profile?');">
+              <button type="submit" class="btn btn-ghost btn-sm">Remove</button>
+            </form>
+          </div>
+        </div>
+        <p class="text-secondary text-sm mt-2">{{ p['description'] or 'No description' }}</p>
+        <div class="grid grid-2 mt-3 text-sm">
+          <div><span class="text-tertiary">Tone:</span> {{ p['tone_of_voice'] or '—' }}</div>
+          <div><span class="text-tertiary">Audience:</span> {{ p['target_audience'] or '—' }}</div>
+          <div><span class="text-tertiary">Font:</span> {{ p['font_family'] or '—' }}</div>
+          <div><span class="text-tertiary">Style:</span> {{ p['preferred_style'] or '—' }}</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="card empty-state">No brand profiles yet. Agencies can create one profile per client.</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

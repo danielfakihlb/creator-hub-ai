@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+{% import "_head.html" as h %}
+{{ h.head(title) }}
+<body>
+  {% import "_icons.html" as ic %}
+  <header class="topnav">
+    <div class="topnav-inner">
+      <a href="{{ url_for('marketing.landing') }}" class="brand-mark">
+        <span class="brand-logo"></span> Creator Hub AI
+      </a>
+      <nav class="nav-links">
+        <a href="{{ url_for('marketing.landing') }}#agents">Agents</a>
+        <a href="{{ url_for('marketing.landing') }}#workflow">How it works</a>
+        <a href="{{ url_for('billing.pricing') }}">Pricing</a>
+        <a href="{{ url_for('marketing.landing') }}#faq">FAQ</a>
+      </nav>
+      <div class="nav-actions">
+        <button class="theme-toggle" data-theme-toggle title="Toggle theme">{{ ic.icon('sun', 16) }}</button>
+        {% if session.get('user_id') %}
+          <a href="{{ url_for('dashboard.home') }}" class="btn btn-secondary btn-sm">Go to dashboard</a>
+        {% else %}
+          <a href="{{ url_for('auth.login') }}" class="btn btn-ghost btn-sm">Log in</a>
+          <a href="{{ url_for('auth.signup') }}" class="btn btn-primary btn-sm">Start free trial</a>
+        {% endif %}
+      </div>
+    </div>
+  </header>
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer style="border-top:1px solid var(--border-subtle); padding:40px 0; margin-top:40px;">
+    <div class="container flex justify-between items-center" style="flex-wrap:wrap; gap:16px;">
+      <div class="brand-mark"><span class="brand-logo"></span> Creator Hub AI</div>
+      <div class="text-tertiary text-sm">&copy; 2026 Creator Hub AI. Built for creators, by a creator.</div>
+    </div>
+  </footer>
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
