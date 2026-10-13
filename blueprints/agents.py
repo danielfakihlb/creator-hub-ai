@@ -26,7 +26,11 @@ AGENT_INTEGRATIONS = {
     "scriptwriter": ["llm_provider"],
     "audio_voice": ["speech_audio"],
     "trend_researcher": ["llm_provider"],
-    "social_media_manager": ["social_instagram", "social_tiktok", "social_youtube"],
+    # Caption/hashtag/calendar DRAFTING only needs the OpenAI key -- actual
+    # posting to these platforms is a separate, much bigger project (each
+    # platform's own developer app + review process; see the roadmap
+    # Daniel asked to keep in the project notes) that isn't built yet.
+    "social_media_manager": ["llm_provider"],
     # Ads Manager's creative/copy generation only needs the OpenAI key --
     # launching a real campaign or spending budget is a separate, much
     # bigger step (a connected ad-platform account + explicit per-launch
@@ -76,6 +80,22 @@ def _run_ads_manager(user, request_summary):
     return llm_client.generate_ads_creative(request_summary, brand_profile=brand_profile)
 
 
+def _run_social_media_manager(user, request_summary):
+    """Real processing for the Social Media Manager agent: an actual call
+    to OpenAI that writes captions, hashtags, and a content calendar draft.
+
+    Scope-critical: this only ever produces drafts. It never posts,
+    schedules, or publishes to any real account -- that needs each
+    platform's own connected API, which isn't built yet.
+    llm_client.SOCIAL_MEDIA_MANAGER_SYSTEM_PROMPT forbids claiming
+    otherwise, and the output always opens with a "Note on scope" line
+    saying so explicitly.
+    """
+    profiles = db.list_brand_profiles(user["id"])
+    brand_profile = dict(profiles[0]) if profiles else None
+    return llm_client.generate_social_content(request_summary, brand_profile=brand_profile)
+
+
 # Agents with real, working processing wired up. Every other agent still
 # needs its backend built even once its integration key is connected --
 # AGENT_INTEGRATIONS only tracks whether the *credential* is present, this
@@ -86,6 +106,7 @@ AGENT_HANDLERS = {
     "scriptwriter": _run_scriptwriter,
     "trend_researcher": _run_trend_researcher,
     "ads_manager": _run_ads_manager,
+    "social_media_manager": _run_social_media_manager,
 }
 
 
