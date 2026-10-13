@@ -136,15 +136,15 @@ AGENTS = {
     "ads_manager": {
         "slug": "ads_manager",
         "name": "AI Ads Manager",
-        "short_description": "Develop and organize advertising campaigns.",
+        "short_description": "Plan smart ad spend and write the creative to match.",
         "icon": "megaphone",
         "plans": ["full_studio"],
         "status": "orchestration_ready",
-        "requires_integration": "Ad concepts, copy, and creative briefs use your connected OpenAI key and work now. Launching live campaigns or spending budget still requires a connected ad-platform API and explicit per-launch approval -- the system never spends money automatically.",
+        "requires_integration": "Ad concepts, copy, and budget/platform strategy guidance use your connected OpenAI key and work now. Launching live campaigns or spending real budget still requires a connected ad-platform API and explicit per-launch approval -- the system never spends money automatically.",
         "capabilities": [
+            "Campaign objective, platform, and test-budget guidance",
             "Ad concepts, copy, headlines, angles",
             "Creative briefs & A/B variations",
-            "Campaign objective & budget planning",
             "Performance review (recommendations clearly separated from verified results)",
         ],
     },
