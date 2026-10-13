@@ -44,6 +44,19 @@ def _run_scriptwriter(user, request_summary):
     return llm_client.generate_script(request_summary, brand_profile=brand_profile)
 
 
+def _run_trend_researcher(user, request_summary):
+    """Real processing for the Trend Researcher agent: an actual call to
+    OpenAI, with a system prompt that forbids inventing fake real-time
+    trends (see llm_client.TREND_RESEARCHER_SYSTEM_PROMPT) -- it builds on
+    whatever the creator describes, or clearly labels its own ideas as
+    strategic brainstorming rather than claiming live trend data it
+    doesn't have.
+    """
+    profiles = db.list_brand_profiles(user["id"])
+    brand_profile = dict(profiles[0]) if profiles else None
+    return llm_client.generate_trend_research(request_summary, brand_profile=brand_profile)
+
+
 # Agents with real, working processing wired up. Every other agent still
 # needs its backend built even once its integration key is connected --
 # AGENT_INTEGRATIONS only tracks whether the *credential* is present, this
@@ -52,6 +65,7 @@ def _run_scriptwriter(user, request_summary):
 # silently marked "running" with nothing actually happening behind it.
 AGENT_HANDLERS = {
     "scriptwriter": _run_scriptwriter,
+    "trend_researcher": _run_trend_researcher,
 }
 
 
