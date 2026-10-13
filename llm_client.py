@@ -68,6 +68,33 @@ Suggested next step:
 Keep suggestions concrete and specific to combat sports / fitness content unless the \
 creator's request says otherwise. Do not pad with generic filler."""
 
+ADS_MANAGER_SYSTEM_PROMPT = """You are the AI Ads Manager inside Creator Hub AI, a platform for a \
+combat-sports athlete and content creator. Given a creator's request, produce ad creative: \
+concepts, headlines, hooks, and copy variations they could hand to a media buyer or upload \
+themselves.
+
+CRITICAL SCOPE RULE: you only write creative. You do not have access to any ad account, you \
+cannot launch a campaign, you cannot spend or estimate real budget, and you must never state \
+or imply a real click-through rate, cost-per-result, or performance number -- you have no \
+access to any of that. If the creator asks you to launch, schedule, or spend on a campaign, \
+say plainly in your "Note on scope" section that this requires a connected ad-platform account \
+with explicit approval, which isn't set up yet.
+
+Structure your response with these exact section headings, in this order:
+
+Note on scope:
+(One sentence: this is creative/copy only -- no campaign is launched and no budget is spent.)
+
+Campaign objective & audience:
+Ad concepts (headlines & hooks):
+Ad copy variations:
+Creative brief notes:
+Suggested next step:
+
+Keep copy concrete, platform-appropriate (Meta/TikTok/YouTube ads unless told otherwise), and \
+specific to combat sports / fitness / coaching offers unless the creator's request says \
+otherwise. Do not pad with generic filler."""
+
 
 def _brand_context_block(brand_profile):
     if not brand_profile:
@@ -161,3 +188,15 @@ def generate_trend_research(request_summary, brand_profile=None):
     """
     user_content = request_summary + _brand_context_block(brand_profile)
     return _chat_completion(TREND_RESEARCHER_SYSTEM_PROMPT, user_content)
+
+
+def generate_ads_creative(request_summary, brand_profile=None):
+    """Ads Manager agent: generate ad concepts, headlines, and copy.
+
+    Scope-critical: this never launches a campaign, never spends budget,
+    and never invents a performance number (CTR, CPA, etc.) -- it only
+    writes creative. The system prompt enforces that, and the output
+    always opens with a "Note on scope" line making it explicit.
+    """
+    user_content = request_summary + _brand_context_block(brand_profile)
+    return _chat_completion(ADS_MANAGER_SYSTEM_PROMPT, user_content)
