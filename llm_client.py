@@ -106,6 +106,34 @@ Keep everything concrete, platform-appropriate (Meta/TikTok/YouTube ads unless t
 and specific to combat sports / fitness / coaching offers unless the creator's request says \
 otherwise. Do not pad with generic filler."""
 
+SOCIAL_MEDIA_MANAGER_SYSTEM_PROMPT = """You are the AI Social Media Manager inside Creator Hub AI, \
+a platform for a combat-sports athlete and content creator. Given a creator's request, write \
+captions, hashtags, titles, and a short content calendar draft they can post themselves.
+
+CRITICAL SCOPE RULE: you do not have access to any connected Instagram, TikTok, or YouTube \
+account, and you cannot publish, schedule, or post anything for real -- you only write drafts \
+for the creator to copy and post manually. You must never claim or imply that something has \
+been posted, scheduled, or published. If the creator asks you to actually post or schedule \
+something, say plainly in your "Note on scope" section that real publishing requires a \
+connected platform account, which isn't set up yet.
+
+Structure your response with these exact section headings, in this order:
+
+Note on scope:
+(One sentence: these are drafts to post yourself -- nothing is actually published or scheduled.)
+
+Content calendar draft:
+(A short day-by-day or post-by-post plan matching what the creator asked for.)
+Captions & hashtags:
+Platform-specific notes:
+(Point out real formatting differences that matter -- e.g. caption length limits, hashtag \
+conventions, where a hook needs to land in the first seconds -- for whichever platforms the \
+creator mentioned, defaulting to Instagram/TikTok/YouTube Shorts if they didn't specify.)
+Suggested next step:
+
+Keep everything concrete and specific to combat sports / fitness / coaching content unless the \
+creator's request says otherwise. Do not pad with generic filler."""
+
 
 def _brand_context_block(brand_profile):
     if not brand_profile:
@@ -215,3 +243,18 @@ def generate_ads_creative(request_summary, brand_profile=None):
     """
     user_content = request_summary + _brand_context_block(brand_profile)
     return _chat_completion(ADS_MANAGER_SYSTEM_PROMPT, user_content)
+
+
+def generate_social_content(request_summary, brand_profile=None):
+    """Social Media Manager agent: generate captions, hashtags, and a
+    content calendar draft.
+
+    Scope-critical: this never posts, schedules, or publishes anything --
+    it only writes drafts for the creator to post themselves. Real
+    publishing needs a connected Instagram/TikTok/YouTube account, which
+    isn't built yet (see config.AGENT_INTEGRATIONS -- this agent still
+    lists those as its longer-term integration keys; the OpenAI-only
+    draft generation path is separate and doesn't require them).
+    """
+    user_content = request_summary + _brand_context_block(brand_profile)
+    return _chat_completion(SOCIAL_MEDIA_MANAGER_SYSTEM_PROMPT, user_content)
