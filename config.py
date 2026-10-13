@@ -125,7 +125,7 @@ AGENTS = {
         "icon": "calendar",
         "plans": ["full_studio"],
         "status": "orchestration_ready",
-        "requires_integration": "Direct publishing requires official platform API connections (Instagram, TikTok, YouTube) under Account Settings → Integrations. Until connected, content exports for manual posting.",
+        "requires_integration": "Captions, hashtags, and content calendar drafts use your connected OpenAI key and work now. Direct publishing to Instagram, TikTok, or YouTube requires each platform's own connected API (a separate, bigger integration) -- until then, everything exports as a draft for you to post yourself.",
         "capabilities": [
             "Captions, hashtags, titles",
             "Content calendar & drafts",
@@ -298,21 +298,3 @@ INTEGRATIONS = {
     },
     "social_instagram": {"label": "Instagram API", "env_vars": ["INSTAGRAM_ACCESS_TOKEN"]},
     "social_tiktok": {"label": "TikTok API", "env_vars": ["TIKTOK_ACCESS_TOKEN"]},
-    "social_youtube": {"label": "YouTube API", "env_vars": ["YOUTUBE_ACCESS_TOKEN"]},
-    "ads_platform": {"label": "Ads platform API", "env_vars": ["ADS_PLATFORM_API_KEY"]},
-    "analytics": {"label": "Analytics data source", "env_vars": ["ANALYTICS_API_KEY"]},
-}
-
-
-def is_configured(integration_key):
-    spec = INTEGRATIONS.get(integration_key)
-    if not spec:
-        return False
-    return all(os.environ.get(v) for v in spec["env_vars"])
-
-
-SECRET_KEY = os.environ.get("CREATOR_HUB_SECRET_KEY", "dev-only-insecure-key-change-me")
-DATABASE_PATH = os.environ.get(
-    "CREATOR_HUB_DB_PATH",
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "instance", "creator_hub.db"),
-)
