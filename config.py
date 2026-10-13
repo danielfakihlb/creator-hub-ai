@@ -140,7 +140,7 @@ AGENTS = {
         "icon": "megaphone",
         "plans": ["full_studio"],
         "status": "orchestration_ready",
-        "requires_integration": "Launching live campaigns or spending budget requires a connected ad-platform API and explicit per-launch approval -- the system never spends money automatically.",
+        "requires_integration": "Ad concepts, copy, and creative briefs use your connected OpenAI key and work now. Launching live campaigns or spending budget still requires a connected ad-platform API and explicit per-launch approval -- the system never spends money automatically.",
         "capabilities": [
             "Ad concepts, copy, headlines, angles",
             "Creative briefs & A/B variations",
@@ -285,7 +285,7 @@ INTEGRATIONS = {
         "env_vars": ["STRIPE_SECRET_KEY", "STRIPE_PUBLISHABLE_KEY"],
     },
     "llm_provider": {
-        "label": "OpenAI API key (Scriptwriter / Trend Researcher / Campaign Planner)",
+        "label": "OpenAI API key (Scriptwriter / Trend Researcher / Ads Manager / Campaign Planner)",
         "env_vars": ["OPENAI_API_KEY"],
     },
     "video_processing": {
