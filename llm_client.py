@@ -1,692 +1,647 @@
-"""Real integration with an external language-model API (OpenAI).
+"""Real local media processing via FFmpeg -- the actual execution engine
+behind the AI Video Editor.
 
-Shared by every agent that calls OpenAI for real (Scriptwriter, Trend
-Researcher, Ads Manager, Social Media Manager, Performance Analyst,
-Campaign Planner, AI Video Editor, and any future one) -- each agent gets
-its own system prompt below, but the text-generating ones all go through
-the same honest call-and-error-handling path in `_chat_completion`. The
-AI Video Editor also uses `transcribe_audio` (OpenAI's Whisper API, real
-speech-to-text with timestamps), `generate_edit_plan` (turns a free-text
-instruction + each clip's real duration/transcript into a machine-
-readable operations plan -- which real tools to run and with what
-parameters -- that media_processing.py then executes with FFmpeg), and
-`translate_caption_segments` (translates already-transcribed caption text
-into another language when asked, keeping timing untouched).
+No external account or API key is needed for FFmpeg itself -- it's
+installed directly on the server and run as a subprocess. OpenAI (Whisper
+transcription + GPT edit planning, in llm_client.py) decides WHAT to do;
+this file only does the real local video/audio WORK once that's decided.
 
-Design rules this file follows, straight from the project spec:
-  - The API key is NEVER hardcoded. It's read from the OPENAI_API_KEY
-    environment variable only (see config.INTEGRATIONS["llm_provider"]).
-    If it isn't set, is_configured() already stops this file from being
-    called at all -- the caller shows "setup required" instead.
-  - We never fabricate a result. If the call fails for any reason (bad
-    key, no quota, network issue, unexpected response), we return a clear
-    honest error instead of inventing text.
-  - This talks to OpenAI directly over HTTPS using the `requests` library
-    and OpenAI's plain REST API -- no OpenAI SDK package required.
+Design rules (same honesty pattern as the rest of this project):
+  - We never fabricate a result. If FFmpeg isn't installed, or a command
+    fails for any reason, we return/report a clear, honest error -- never
+    a fake "done" with no real file behind it.
+  - Every public function returns (ok, output_path_or_None, error_message)
+    unless noted otherwise.
+  - Progress reporting is REAL: it comes from parsing FFmpeg's own
+    `-progress` stream against the clip's actual measured duration, not a
+    simulated animation -- see _run_ffmpeg_progress.
 """
 
-import json
 import os
-import requests
+import shutil
+import subprocess
+import uuid
 
-import media_processing as mp
+FFMPEG_TIMEOUT_SECONDS = 180
+STEP_TIMEOUT_SECONDS = 600  # a heavier real step (transitions, a long clip) can take a while on a slow server
 
-OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
-OPENAI_TRANSCRIPTION_URL = "https://api.openai.com/v1/audio/transcriptions"
-MODEL = "gpt-4o-mini"  # inexpensive, good-quality model -- stretches a small API budget
-TRANSCRIPTION_MODEL = "whisper-1"
-REQUEST_TIMEOUT_SECONDS = 45
-TRANSCRIPTION_TIMEOUT_SECONDS = 120  # audio upload + transcription takes longer than a chat call
+# Bundled directly in this project (static/fonts/) rather than relying on
+# whatever fonts happen to be installed on the host server -- so caption/
+# overlay text renders the same everywhere instead of silently failing on
+# a server that doesn't have a particular font.
+_FONT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "fonts", "DejaVuSans-Bold.ttf")
+_FONTS_DIR = os.path.dirname(_FONT_PATH)
 
-SCRIPTWRITER_SYSTEM_PROMPT = """You are the AI Scriptwriter inside Creator Hub AI, a content-creation \
-platform for a combat-sports athlete and content creator. Given a creator's request, \
-write a ready-to-film short-form video script.
-
-Always structure your response with these exact sections, in this order, using these \
-exact headings:
-
-Hook:
-Script:
-Scene-by-scene breakdown:
-Suggested visuals:
-Voiceover / dialogue:
-On-screen text:
-Call to action:
-
-Keep the tone energetic and direct unless the brand voice below says otherwise. Be \
-concrete and filmable -- a real editor should be able to shoot this without asking \
-follow-up questions. Do not pad with generic filler."""
-
-TREND_RESEARCHER_SYSTEM_PROMPT = """You are the AI Trend Researcher & Content Strategist inside \
-Creator Hub AI, a platform for a combat-sports athlete and content creator.
-
-CRITICAL HONESTY RULE: you do NOT have live internet access, and you cannot see real-time \
-view counts, trending sounds, hashtag volume, or what is actually popular on any platform \
-right now. You must never state a specific "trend," statistic, hashtag, or sound as \
-currently real or trending unless the creator explicitly told you about it themselves. \
-If the creator describes something they've personally observed (a trend, a competitor's \
-video, an audience reaction), treat that as true and build on it. If they ask you to find \
-or suggest trends in general without giving you specifics, make that limitation explicit \
-in your "Note on data" section below rather than inventing fake current trends.
-
-Structure your response with these exact section headings, in this order:
-
-Note on data:
-(One sentence: whether this response is based on what the creator told you, or is strategic brainstorming because no live trend data is connected.)
-
-Niche angles:
-Content format ideas:
-Competitor / collaboration angles:
-Suggested next step:
-
-Keep suggestions concrete and specific to combat sports / fitness content unless the \
-creator's request says otherwise. Do not pad with generic filler."""
-
-ADS_MANAGER_SYSTEM_PROMPT = """You are the AI Ads Manager inside Creator Hub AI, a platform for a \
-combat-sports athlete and content creator. Given a creator's request, do two things together: \
-(1) produce ad creative -- concepts, headlines, hooks, and copy variations -- and (2) teach the \
-creator how to plan and spend their ad budget sensibly, so they aren't guessing or spending \
-money randomly: which platform to start on, which campaign objective to pick, a sensible test \
-budget and how long to test before scaling, and how to split spend across audiences.
-
-CRITICAL SCOPE RULE: you do not have access to any ad account, you cannot launch a campaign, \
-and you cannot see or spend any real budget. You must never state or imply a real \
-click-through rate, cost-per-result, cost-per-click, or any other performance number as if \
-it's actual data from this creator's account -- you have no access to that. When you give \
-budget, bidding, or platform advice, it must be framed as general best-practice guidance \
-(industry rules of thumb for someone in this situation), never as a guarantee or as this \
-creator's real account data. If the creator asks you to actually launch, schedule, or spend on \
-a campaign, say plainly in your "Note on scope" section that this requires a connected \
-ad-platform account with explicit approval, which isn't set up yet.
-
-Structure your response with these exact section headings, in this order:
-
-Note on scope:
-(One sentence: this is creative + budget/platform planning guidance only -- no campaign is \
-launched, no real budget is spent, and no real performance numbers are claimed.)
-
-Campaign objective & audience:
-Recommended platform & budget approach:
-(Give a concrete plan: which platform(s) to start on and why, which campaign objective to \
-choose, a sensible starting daily or weekly test budget and how long to test before scaling, \
-and how to split spend across cold vs. warm/retargeting audiences if relevant. This is general \
-best practice, not account-specific data.)
-Ad concepts (headlines & hooks):
-Ad copy variations:
-Creative brief notes:
-Suggested next step:
-
-Keep everything concrete, platform-appropriate (Meta/TikTok/YouTube ads unless told otherwise), \
-and specific to combat sports / fitness / coaching offers unless the creator's request says \
-otherwise. Do not pad with generic filler."""
-
-SOCIAL_MEDIA_MANAGER_SYSTEM_PROMPT = """You are the AI Social Media Manager inside Creator Hub AI, \
-a platform for a combat-sports athlete and content creator. Given a creator's request, write \
-captions, hashtags, titles, and a short content calendar draft they can post themselves.
-
-CRITICAL SCOPE RULE: you do not have access to any connected Instagram, TikTok, or YouTube \
-account, and you cannot publish, schedule, or post anything for real -- you only write drafts \
-for the creator to copy and post manually. You must never claim or imply that something has \
-been posted, scheduled, or published. If the creator asks you to actually post or schedule \
-something, say plainly in your "Note on scope" section that real publishing requires a \
-connected platform account, which isn't set up yet.
-
-Structure your response with these exact section headings, in this order:
-
-Note on scope:
-(One sentence: these are drafts to post yourself -- nothing is actually published or scheduled.)
-
-Content calendar draft:
-(A short day-by-day or post-by-post plan matching what the creator asked for.)
-Captions & hashtags:
-Platform-specific notes:
-(Point out real formatting differences that matter -- e.g. caption length limits, hashtag \
-conventions, where a hook needs to land in the first seconds -- for whichever platforms the \
-creator mentioned, defaulting to Instagram/TikTok/YouTube Shorts if they didn't specify.)
-Suggested next step:
-
-Keep everything concrete and specific to combat sports / fitness / coaching content unless the \
-creator's request says otherwise. Do not pad with generic filler."""
-
-PERFORMANCE_ANALYST_SYSTEM_PROMPT = """You are the AI Performance Analyst inside Creator Hub AI, \
-a platform for a combat-sports athlete and content creator. The creator will paste in real \
-numbers from their own posts (views, likes, comments, shares, watch time, follower counts, \
-etc.) and you analyze what's working and why.
-
-CRITICAL HONESTY RULE: you have no live connection to Instagram, TikTok, YouTube, or any \
-analytics platform, and no access to this creator's account. You can only analyze numbers the \
-creator actually pastes into their request. You must never invent, estimate, or assume a \
-number they didn't give you -- no made-up view counts, engagement rates, or benchmarks \
-presented as if they were this creator's real data. If the creator asks for analysis but \
-hasn't given you any numbers, say so plainly in your "Note on data" section and ask what to \
-analyze instead of inventing a report. General industry benchmarks are fine ONLY if clearly \
-labeled as general knowledge, never as this creator's data.
-
-Structure your response with these exact section headings, in this order:
-
-Note on data:
-(One sentence: this analysis is based only on the numbers the creator provided -- nothing is \
-pulled from a live account, and nothing is invented. If no real numbers were given, say that \
-here instead of analyzing.)
-
-What's working:
-What's underperforming:
-Format & hook comparison:
-(Compare the posts/formats the creator gave numbers for, if more than one. If only one data \
-point was given, say there's not enough to compare yet.)
-Suggested next step:
-
-Keep everything concrete and tied directly to the numbers given. Do not pad with generic \
-filler, and do not fabricate any figure."""
-
-
-CAMPAIGN_PLANNER_SYSTEM_PROMPT = """You are the AI Campaign Planner inside Creator Hub AI, a \
-content platform for a combat-sports athlete and content creator. Given a campaign's name and \
-objective, break it into an ordered sequence of tasks, each one assigned to exactly one of this \
-platform's specialist agents.
-
-You may ONLY use these agent slugs, exactly as spelled, one per task:
-{agent_slug_list}
-
-CRITICAL FORMAT RULE: reply with nothing except the plan itself, in this exact format and \
-nothing else -- no extra commentary before or after it:
-
-Plan summary: <one sentence describing the overall approach for this specific campaign>
-<agent_slug> | <short, concrete task title for that agent, specific to this campaign>
-<agent_slug> | <short, concrete task title for that agent, specific to this campaign>
-(repeat for 3 to 8 tasks total, in the order they should happen)
-
-CRITICAL SCOPE RULE: you are not launching, running, or executing anything here -- you are only \
-proposing which agents should do what, in what order, for this specific campaign. Pick only \
-agents that are actually relevant to this campaign's objective; don't force in an agent that \
-doesn't fit it. Keep every task title concrete and specific to the campaign name/objective \
-given -- never generic filler, and never a task title that doesn't match what that agent \
-actually does."""
-
-
-VIDEO_EDITOR_SYSTEM_PROMPT = """You are the editing brain behind the AI Video Editor inside \
-Creator Hub AI, a platform for a combat-sports athlete and content creator. The creator uploads \
-one or more raw footage clips and describes, in plain language, whatever they want done to them -- \
-anything from "just add captions" to "translate the captions to Spanish" to a full cut-and-reorder \
-edit with transitions, color grading, and a text overlay. You do not generate any video yourself: \
-you only decide WHICH of the real tools below should run, and with what parameters, by replying \
-with a precise, machine-readable OPERATIONS PLAN that a real video-processing pipeline will \
-execute exactly as you specify. Only include an operation the creator's instruction actually \
-calls for -- never add a step they didn't ask for.
-
-WHAT YOU ARE GIVEN: for each uploaded clip, its index (0-based), its real duration in seconds, \
-and a transcript of what is actually said in it (a list of [start-end] spoken segments, or a note \
-that no speech was detected).
-
-THE REAL TOOLS AVAILABLE (each is its own optional key in your reply; omit a key entirely, or set \
-it to null, if the creator didn't ask for that operation):
-
-- trim_and_reorder: cut specific time ranges out of specific clips and join them in a specific \
-order. Omit this (or set it to null) if the creator wants the clip(s) used in full, untouched, in \
-upload order -- e.g. "just add captions to this" needs no cutting at all.
-  - "segments": ordered list of {"clip_index", "start", "end"}. Every clip_index must be one you \
-were actually given, and start/end must fall strictly within that clip's real duration.
-  - "transition": optional {"style", "duration"} applied BETWEEN every adjacent pair of segments. \
-"style" must be one of: none, fade, fadeblack, wipeleft, wiperight, slideleft, slideright, \
-circleopen, dissolve, smoothleft, smoothright. "duration" is seconds (e.g. 0.3-1.0). Only include \
-this if the creator asked for transitions/cuts-with-style between clips; a plain hard cut needs no \
-transition object at all.
-- change_speed: {"factor"} -- a number where 2.0 is twice as fast (slow-motion is below 1.0, e.g. \
-0.5 for half speed). Only include this if the creator explicitly asked for a speed change, \
-slow-motion, or a timelapse/sped-up effect.
-- color_grade: {"preset"} -- one of: natural, vibrant, dark_cinematic, documentary, luxury. Only \
-include this if the creator asked for a color grade, a "look," or a cinematic/vibrant/moody style.
-- captions: {"enabled": true, "translate_to": null or a language name like "Spanish"} -- burns in \
-real captions transcribed from the speech. Set "translate_to" only if the creator explicitly asked \
-for the captions/subtitles in another language; otherwise leave it null (captions stay in the \
-original spoken language).
-- text_overlay: {"text", "start", "end"} -- an on-screen text/quote overlay. If the creator gave \
-you their own exact words (e.g. in quotation marks, or clearly dictated), use that text VERBATIM -- \
-never rewrite it. If they asked for a motivational quote/message/on-screen text but gave no exact \
-words, write a short original one yourself that fits the footage and their instruction. Omit this \
-key entirely if they didn't ask for any on-screen text.
-
-CRITICAL HONESTY RULES:
-- Never invent spoken words -- only reference what the given transcript actually says.
-- You have no ability to see the footage itself -- you cannot judge framing, lighting, or visual \
-quality. Base cutting decisions only on the transcript content, clip durations, and the creator's \
-instruction.
-- You do not currently have real music-beat detection. When the creator asks to "cut to the \
-sound/beat," approximate this honestly by cutting on natural pauses and sentence boundaries in \
-the speech transcript (a reasonable stand-in for musical rhythm), not by claiming to have \
-detected an actual beat.
-- Real voice dubbing/translation of the spoken audio itself isn't built yet -- only caption/text \
-translation is real. If the creator asks for dubbed/translated speech audio, do not attempt it; \
-just proceed with whatever other operations they also asked for.
-
-REPLY FORMAT -- CRITICAL: reply with ONLY valid JSON, nothing before or after it, no markdown code \
-fences, matching exactly this shape (every top-level key is optional except "notes"):
-
-{
-  "trim_and_reorder": {"segments": [{"clip_index": 0, "start": 0.0, "end": 4.2}], "transition": null} or null,
-  "change_speed": {"factor": 1.5} or null,
-  "color_grade": {"preset": "dark_cinematic"} or null,
-  "captions": {"enabled": true, "translate_to": null} or null,
-  "text_overlay": {"text": "Exact or AI-written words", "start": 0.0, "end": 3.0} or null,
-  "notes": "One sentence explaining what you're doing and why."
+# Target resolution per platform. Width x height, portrait for
+# Reels/TikTok/Shorts, square for feed posts, landscape for YouTube/wide.
+PLATFORM_DIMENSIONS = {
+    "reels_tiktok_shorts": (1080, 1920),
+    "square_feed": (1080, 1080),
+    "landscape_youtube": (1920, 1080),
 }
 
-If trim_and_reorder is included, choose segments so the finished edit feels like a real short-form \
-piece (roughly 15-90 seconds total) unless the creator's instruction clearly asks for something \
-longer or shorter."""
+# Color grading presets -> FFmpeg filter strings. Modest, broadly-
+# flattering adjustments -- an automatic "good enough" grade, not a claim
+# of frame-perfect, shot-matched color correction a human colorist would do.
+COLOR_PRESETS = {
+    "natural": "eq=contrast=1.05:brightness=0.01:saturation=1.05",
+    "vibrant": "eq=contrast=1.12:brightness=0.02:saturation=1.35",
+    "dark_cinematic": "eq=contrast=1.18:brightness=-0.04:saturation=0.9,curves=preset=darker",
+    "documentary": "eq=contrast=1.02:brightness=0.0:saturation=0.95",
+    "luxury": "eq=contrast=1.15:brightness=0.0:saturation=1.1,curves=preset=medium_contrast",
+}
+
+# Real FFmpeg xfade transition styles this server's build supports,
+# curated to a sensible subset for the AI to choose from.
+TRANSITION_STYLES = {
+    "none", "fade", "fadeblack", "wipeleft", "wiperight", "slideleft",
+    "slideright", "circleopen", "dissolve", "smoothleft", "smoothright",
+}
+
+MIN_SPEED_FACTOR = 0.25
+MAX_SPEED_FACTOR = 4.0
+
+# Noise-reduction strength presets for the AI Audio & Voice Agent -> the
+# noise floor (dB) passed to FFmpeg's afftdn filter. More negative = more
+# aggressive reduction. Paired with a highpass (removes low rumble) and
+# loudnorm (consistent loudness) for a real "clean dialogue" pass, not just
+# noise removal alone.
+NOISE_REDUCTION_LEVELS = {
+    "light": -18,
+    "standard": -25,
+    "heavy": -32,
+}
 
 
-def transcribe_audio(audio_path):
-    """Transcribe spoken audio to text with per-segment timestamps, using
-    OpenAI's Whisper API (real speech-to-text, not a guess).
+def ffmpeg_available():
+    return shutil.which("ffmpeg") is not None
 
-    Returns (ok, segments, error_message). `segments` is a list of
-    {"start": float, "end": float, "text": str} dicts in the clip's own
-    original timeline. If the clip has no detectable speech, this returns
-    ok=True with an empty list -- that's a real, honest result, not a
-    failure. Any actual failure (no key, network issue, bad file) returns
-    ok=False with a clear error -- it never invents dialogue.
-    """
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        return False, None, "No OpenAI API key is configured (OPENAI_API_KEY is not set)."
 
+def _looks_like_video(path):
+    return os.path.splitext(path)[1].lower() in {".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv"}
+
+
+def is_video_file(path):
+    """Public wrapper so callers outside this module (the Audio & Voice
+    Agent's blueprint) can tell a video upload from an audio-only one
+    without reaching into a private helper."""
+    return _looks_like_video(path)
+
+
+def probe_duration(path):
+    """Real duration of a media file in seconds, via ffprobe. Returns a
+    float, or None if it can't be determined -- callers must treat None
+    as "unknown", never guess a number."""
+    if not shutil.which("ffprobe"):
+        return None
     try:
-        with open(audio_path, "rb") as f:
-            response = requests.post(
-                OPENAI_TRANSCRIPTION_URL,
-                headers={"Authorization": f"Bearer {api_key}"},
-                files={"file": (os.path.basename(audio_path), f, "audio/mpeg")},
-                data={"model": TRANSCRIPTION_MODEL, "response_format": "verbose_json"},
-                timeout=TRANSCRIPTION_TIMEOUT_SECONDS,
-            )
-    except requests.exceptions.Timeout:
-        return False, None, "The request to OpenAI timed out while transcribing audio. Try again in a moment."
-    except requests.exceptions.RequestException as exc:
-        return False, None, f"Couldn't reach OpenAI to transcribe audio: {exc}"
-    except OSError as exc:
-        return False, None, f"Couldn't read the extracted audio file: {exc}"
-
-    if response.status_code == 200:
-        try:
-            data = response.json()
-            raw_segments = data.get("segments", [])
-        except ValueError:
-            return False, None, "OpenAI returned a transcription response we couldn't read."
-        segments = [
-            {"start": float(s["start"]), "end": float(s["end"]), "text": s.get("text", "").strip()}
-            for s in raw_segments
-            if s.get("text", "").strip()
-        ]
-        return True, segments, None
-
-    detail = None
-    try:
-        detail = response.json().get("error", {}).get("message")
-    except ValueError:
-        pass
-    if response.status_code == 401:
-        return False, None, "OpenAI rejected the API key (401 Unauthorized) while transcribing audio."
-    if response.status_code == 429:
-        return False, None, detail or "OpenAI reported rate limiting or no remaining quota/credit (429) while transcribing audio."
-    return False, None, detail or f"OpenAI returned an error while transcribing audio (HTTP {response.status_code})."
-
-
-def _parse_json_reply(text):
-    cleaned = text.strip()
-    if cleaned.startswith("```"):
-        cleaned = cleaned.strip("`")
-        if cleaned.lower().startswith("json"):
-            cleaned = cleaned[4:]
-        cleaned = cleaned.strip()
-    return json.loads(cleaned)
-
-
-def generate_edit_plan(instruction, clips_info):
-    """AI Video Editor: turn a free-text instruction + one or more raw
-    clips' real durations/transcripts into a concrete, machine-readable
-    OPERATIONS PLAN -- the model picks which real tools to run (cutting/
-    reordering with transitions, speed change, color grade, captions +
-    optional translation, text overlay), not a fixed one-size-fits-all
-    pipeline. "Just add captions" and "make a full cut-and-color-graded
-    Reel with a quote" both go through this same function; the difference
-    is which keys come back non-null.
-
-    clips_info: list of {"index": int, "filename": str, "duration": float,
-    "transcript": [{"start","end","text"}, ...]} -- the real, already-
-    measured facts about each uploaded clip; this function never guesses
-    at them.
-
-    Returns (ok, plan, error_message). `plan` always has every key below,
-    already validated/clamped against the real clip durations and the
-    real tool options given -- a caller can execute it directly without
-    re-checking bounds:
-      {"trim_and_reorder": {"segments": [...], "transition": {...} or None},
-       "change_speed": {"factor": float} or None,
-       "color_grade": {"preset": str} or None,
-       "captions": {"enabled": bool, "translate_to": str or None} or None,
-       "text_overlay": {"text","start","end"} or None,
-       "notes": str}
-    If trim_and_reorder was omitted/null in the model's reply, this fills
-    in one full-duration segment per uploaded clip, in upload order, so
-    there's always a valid cut/concat step for the pipeline to run even
-    when the creator only wanted a non-cutting operation like captions.
-    """
-    lines = []
-    for clip in clips_info:
-        lines.append(f"Clip {clip['index']} -- \"{clip['filename']}\" -- duration {clip['duration']:.2f}s")
-        if clip["transcript"]:
-            for seg in clip["transcript"]:
-                lines.append(f"  [{seg['start']:.2f}-{seg['end']:.2f}] {seg['text']}")
-        else:
-            lines.append("  (no speech detected in this clip)")
-    user_content = f"Creator's instruction: {instruction}\n\n" + "\n".join(lines)
-
-    ok, text, error = _chat_completion(VIDEO_EDITOR_SYSTEM_PROMPT, user_content)
-    if not ok:
-        return False, None, error
-
-    try:
-        raw_plan = _parse_json_reply(text)
-    except ValueError:
-        return False, None, "OpenAI's response wasn't valid JSON, so no real edit plan could be parsed."
-    if not isinstance(raw_plan, dict):
-        return False, None, "OpenAI's response wasn't a usable edit plan."
-
-    durations_by_index = {clip["index"]: clip["duration"] for clip in clips_info}
-
-    # --- trim_and_reorder (defaults to "use every clip, in full, in order") ---
-    raw_trim = raw_plan.get("trim_and_reorder")
-    valid_segments = []
-    if isinstance(raw_trim, dict):
-        for seg in raw_trim.get("segments", []) or []:
-            try:
-                clip_index = int(seg["clip_index"])
-                start = float(seg["start"])
-                end = float(seg["end"])
-            except (KeyError, TypeError, ValueError):
-                continue
-            if clip_index not in durations_by_index:
-                continue
-            clip_duration = durations_by_index[clip_index]
-            start = max(0.0, min(start, clip_duration))
-            end = max(0.0, min(end, clip_duration))
-            if end - start < 0.3:  # too short to be a real usable cut
-                continue
-            valid_segments.append({"clip_index": clip_index, "start": round(start, 2), "end": round(end, 2)})
-    if not valid_segments:
-        valid_segments = [
-            {"clip_index": clip["index"], "start": 0.0, "end": round(clip["duration"], 2)}
-            for clip in clips_info
-        ]
-
-    transition = None
-    if isinstance(raw_trim, dict) and isinstance(raw_trim.get("transition"), dict):
-        style = raw_trim["transition"].get("style")
-        if style in mp.TRANSITION_STYLES and style != "none" and len(valid_segments) > 1:
-            try:
-                duration = float(raw_trim["transition"].get("duration", 0.4))
-            except (TypeError, ValueError):
-                duration = 0.4
-            transition = {"style": style, "duration": max(0.1, min(2.0, duration))}
-
-    trim_and_reorder = {"segments": valid_segments, "transition": transition}
-
-    # --- change_speed ---
-    change_speed = None
-    raw_speed = raw_plan.get("change_speed")
-    if isinstance(raw_speed, dict):
-        try:
-            factor = float(raw_speed.get("factor", 1.0))
-        except (TypeError, ValueError):
-            factor = None
-        if factor and abs(factor - 1.0) > 0.01:
-            change_speed = {"factor": max(mp.MIN_SPEED_FACTOR, min(mp.MAX_SPEED_FACTOR, factor))}
-
-    # --- color_grade ---
-    color_grade = None
-    raw_color = raw_plan.get("color_grade")
-    if isinstance(raw_color, dict) and raw_color.get("preset") in mp.COLOR_PRESETS:
-        color_grade = {"preset": raw_color["preset"]}
-
-    # --- captions ---
-    captions = None
-    raw_captions = raw_plan.get("captions")
-    if isinstance(raw_captions, dict) and raw_captions.get("enabled"):
-        translate_to = raw_captions.get("translate_to")
-        translate_to = str(translate_to).strip() if translate_to else None
-        captions = {"enabled": True, "translate_to": translate_to}
-
-    # --- text_overlay ---
-    text_overlay = None
-    raw_overlay = raw_plan.get("text_overlay")
-    if isinstance(raw_overlay, dict) and raw_overlay.get("text"):
-        try:
-            o_start = float(raw_overlay.get("start", 0.0))
-            o_end = float(raw_overlay.get("end", o_start + 3.0))
-        except (TypeError, ValueError):
-            o_start, o_end = 0.0, 3.0
-        if o_end <= o_start:
-            o_end = o_start + 3.0
-        text_overlay = {
-            "text": str(raw_overlay["text"]).strip(),
-            "start": round(max(0.0, o_start), 2),
-            "end": round(o_end, 2),
-        }
-
-    plan = {
-        "trim_and_reorder": trim_and_reorder,
-        "change_speed": change_speed,
-        "color_grade": color_grade,
-        "captions": captions,
-        "text_overlay": text_overlay,
-        "notes": raw_plan.get("notes", "").strip() if isinstance(raw_plan.get("notes"), str) else "",
-    }
-    return True, plan, None
-
-
-def translate_caption_segments(entries, target_language):
-    """Translate already-transcribed caption text into another language,
-    keeping every entry's real timing untouched -- only the `text` field
-    changes. Returns (ok, translated_entries, error_message). If the
-    model's reply doesn't line up 1:1 with what was sent, this fails
-    honestly rather than risk mismatched/garbled captions.
-    """
-    if not entries:
-        return True, entries, None
-    numbered = "\n".join(f"{i}: {e['text']}" for i, e in enumerate(entries))
-    system_prompt = (
-        f"Translate each numbered line into {target_language}. Reply with ONLY a JSON array of "
-        f"strings, in the same order, same count ({len(entries)} items), each the translation of "
-        "the matching line -- no numbering, no commentary, no markdown fences."
-    )
-    ok, text, error = _chat_completion(system_prompt, numbered)
-    if not ok:
-        return False, None, error
-    try:
-        translated = _parse_json_reply(text)
-    except ValueError:
-        return False, None, "OpenAI's translation reply wasn't valid JSON."
-    if not isinstance(translated, list) or len(translated) != len(entries):
-        return False, None, "OpenAI's translation reply didn't match the number of captions sent."
-    result = [
-        {"start": e["start"], "end": e["end"], "text": str(t).strip()}
-        for e, t in zip(entries, translated)
-    ]
-    return True, result, None
-
-
-def _brand_context_block(brand_profile):
-    if not brand_profile:
-        return ""
-    parts = []
-    if brand_profile.get("name"):
-        parts.append(f"Brand: {brand_profile['name']}")
-    if brand_profile.get("tone_of_voice"):
-        parts.append(f"Tone of voice: {brand_profile['tone_of_voice']}")
-    if brand_profile.get("target_audience"):
-        parts.append(f"Target audience: {brand_profile['target_audience']}")
-    if brand_profile.get("preferred_style"):
-        parts.append(f"Preferred style: {brand_profile['preferred_style']}")
-    if not parts:
-        return ""
-    return "\n\nBrand context from this creator's Brand Memory:\n" + "\n".join(parts)
-
-
-def _chat_completion(system_prompt, user_content):
-    """Call OpenAI's chat completions endpoint. Returns (ok, text, error_message).
-
-    Exactly one of `text` / `error_message` is set when ok is True/False
-    respectively, so callers never have to guess which one to trust. This
-    never fabricates a result -- any failure comes back as an honest error.
-    """
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        return False, None, "No OpenAI API key is configured (OPENAI_API_KEY is not set)."
-
-    payload = {
-        "model": MODEL,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content},
-        ],
-        "temperature": 0.8,
-        "max_tokens": 900,
-    }
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-
-    try:
-        response = requests.post(
-            OPENAI_CHAT_COMPLETIONS_URL, headers=headers, json=payload, timeout=REQUEST_TIMEOUT_SECONDS
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
+            capture_output=True, text=True, timeout=30,
         )
-    except requests.exceptions.Timeout:
-        return False, None, "The request to OpenAI timed out. Try again in a moment."
-    except requests.exceptions.RequestException as exc:
-        return False, None, f"Couldn't reach OpenAI: {exc}"
-
-    if response.status_code == 200:
-        try:
-            data = response.json()
-            text = data["choices"][0]["message"]["content"].strip()
-        except (ValueError, KeyError, IndexError):
-            return False, None, "OpenAI returned a response we couldn't read. Try again."
-        if not text:
-            return False, None, "OpenAI returned an empty response. Try again."
-        return True, text, None
-
-    # Try to surface OpenAI's own error message; fall back to the status code.
-    detail = None
+    except (subprocess.TimeoutExpired, OSError):
+        return None
     try:
-        detail = response.json().get("error", {}).get("message")
+        return float(result.stdout.strip())
     except ValueError:
-        pass
-
-    if response.status_code == 401:
-        return False, None, "OpenAI rejected the API key (401 Unauthorized). Double-check the key is correct and active."
-    if response.status_code == 429:
-        return False, None, detail or "OpenAI reported rate limiting or no remaining quota/credit (429). Check your OpenAI account's usage and billing."
-    return False, None, detail or f"OpenAI returned an error (HTTP {response.status_code})."
+        return None
 
 
-def generate_script(request_summary, brand_profile=None):
-    """Scriptwriter agent: generate a real, ready-to-film script."""
-    user_content = request_summary + _brand_context_block(brand_profile)
-    return _chat_completion(SCRIPTWRITER_SYSTEM_PROMPT, user_content)
+def _has_audio_stream(path):
+    """Whether this file has a real audio track -- checked, not assumed,
+    since silent raw footage is common and we don't want a crash when
+    joining it with clips that do have sound."""
+    if not shutil.which("ffprobe"):
+        return True  # assume yes rather than silently drop audio elsewhere
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries", "stream=index", "-of", "csv=p=0", path],
+            capture_output=True, text=True, timeout=30,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return True
+    return bool(result.stdout.strip())
 
 
-def generate_trend_research(request_summary, brand_profile=None):
-    """Trend Researcher agent: generate strategic content research.
-
-    Honesty-critical: this is never allowed to assert a fake real-time
-    trend as fact. The system prompt above enforces that at the model
-    level, and the output always carries a "Note on data" section saying
-    whether it's based on what the creator provided or on strategic
-    brainstorming.
-    """
-    user_content = request_summary + _brand_context_block(brand_profile)
-    return _chat_completion(TREND_RESEARCHER_SYSTEM_PROMPT, user_content)
-
-
-def generate_ads_creative(request_summary, brand_profile=None):
-    """Ads Manager agent: generate ad concepts, headlines, copy, AND
-    teach budget/platform strategy (which platform to start on, campaign
-    objective, test budget, scaling, audience split).
-
-    Scope-critical: this never launches a campaign, never spends real
-    budget, and never invents a real performance number (CTR, CPA, etc.)
-    tied to this creator's account -- any budget/bidding advice it gives
-    is general best practice, not account data. The system prompt
-    enforces that, and the output always opens with a "Note on scope"
-    line making it explicit.
-    """
-    user_content = request_summary + _brand_context_block(brand_profile)
-    return _chat_completion(ADS_MANAGER_SYSTEM_PROMPT, user_content)
+def _run_ffmpeg(args, timeout=FFMPEG_TIMEOUT_SECONDS):
+    """Run a quick ffmpeg command with no live progress needed. Returns
+    (ok, error_message_or_None)."""
+    if not ffmpeg_available():
+        return False, "FFmpeg is not installed on this server."
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-loglevel", "error", *args],
+            capture_output=True, text=True, timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return False, "FFmpeg timed out while processing this file."
+    except OSError as exc:
+        return False, f"Couldn't run FFmpeg: {exc}"
+    if result.returncode != 0:
+        tail = "\n".join(result.stderr.strip().splitlines()[-8:])
+        return False, f"FFmpeg reported an error:\n{tail}"
+    return True, None
 
 
-def generate_social_content(request_summary, brand_profile=None):
-    """Social Media Manager agent: generate captions, hashtags, and a
-    content calendar draft.
+def _run_ffmpeg_progress(args, total_duration, on_progress=None, timeout=STEP_TIMEOUT_SECONDS):
+    """Like _run_ffmpeg, but streams REAL progress while the command runs,
+    by reading FFmpeg's own `-progress` output and comparing its advancing
+    out_time against the real duration we expect this step to produce.
+    on_progress, if given, is called with a float 0-100 as the process
+    actually advances -- this is never a simulated animation. Returns
+    (ok, error_message_or_None)."""
+    if not ffmpeg_available():
+        return False, "FFmpeg is not installed on this server."
+    full_args = ["ffmpeg", "-y", "-loglevel", "error", *args, "-progress", "pipe:1", "-nostats"]
+    try:
+        proc = subprocess.Popen(full_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+    except OSError as exc:
+        return False, f"Couldn't run FFmpeg: {exc}"
 
-    Scope-critical: this never posts, schedules, or publishes anything --
-    it only writes drafts for the creator to post themselves. Real
-    publishing needs a connected Instagram/TikTok/YouTube account, which
-    isn't built yet (see config.AGENT_INTEGRATIONS -- this agent still
-    lists those as its longer-term integration keys; the OpenAI-only
-    draft generation path is separate and doesn't require them).
-    """
-    user_content = request_summary + _brand_context_block(brand_profile)
-    return _chat_completion(SOCIAL_MEDIA_MANAGER_SYSTEM_PROMPT, user_content)
+    last_reported = -1
+    try:
+        for line in proc.stdout:
+            line = line.strip()
+            if line.startswith("out_time_ms="):
+                try:
+                    out_time_s = int(line.split("=", 1)[1]) / 1_000_000
+                    if total_duration and total_duration > 0:
+                        pct = max(0.0, min(99.0, out_time_s / total_duration * 100))
+                        if on_progress and int(pct) != last_reported:
+                            last_reported = int(pct)
+                            on_progress(pct)
+                except (ValueError, IndexError):
+                    pass
+        try:
+            stderr_output = proc.stderr.read()
+        except Exception:
+            stderr_output = ""
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        return False, "FFmpeg timed out while processing this file."
+
+    if proc.returncode != 0:
+        tail = "\n".join((stderr_output or "").strip().splitlines()[-8:])
+        return False, f"FFmpeg reported an error:\n{tail}"
+    if on_progress:
+        on_progress(100.0)
+    return True, None
 
 
-def generate_campaign_plan(name, objective, allowed_agent_slugs, brand_profile=None):
-    """Campaign Planner agent: ask OpenAI to break this specific campaign
-    into an ordered list of (agent_slug, task_title) steps tailored to its
-    name/objective, instead of always handing back the same fixed template.
+def _cleanup_paths(paths):
+    for p in paths:
+        try:
+            if p and os.path.exists(p):
+                os.remove(p)
+        except OSError:
+            pass
 
-    Returns (ok, parsed_tasks, error_message). parsed_tasks is a list of
-    (agent_slug, task_title) tuples already validated against
-    allowed_agent_slugs -- the caller never has to re-check them. If the
-    model's reply can't be parsed into at least one valid task, this
-    returns ok=False with an honest error so the caller falls back to the
-    standard task template rather than silently creating an empty plan.
-    """
-    agent_slug_list = "\n".join(f"- {slug}" for slug in allowed_agent_slugs)
-    system_prompt = CAMPAIGN_PLANNER_SYSTEM_PROMPT.format(agent_slug_list=agent_slug_list)
-    user_content = f"Campaign name: {name}\nCampaign objective: {objective}" + _brand_context_block(brand_profile)
-    ok, text, error = _chat_completion(system_prompt, user_content)
+
+# ---------------------------------------------------------------------
+# Captions: timeline remapping, SRT writing, drawtext escaping
+# ---------------------------------------------------------------------
+
+def remap_transcripts_to_timeline(segments, transcripts_by_clip):
+    """Remap each clip's original transcript timestamps onto the NEW,
+    assembled-output timeline (the order/cuts in `segments`), keeping only
+    the parts that actually survive the cut. This is what makes burned-in
+    captions line up with the real, edited video instead of the original
+    raw footage. Returns a list of {"start","end","text"} on that new
+    ("assembled", pre-speed-change) timeline."""
+    entries = []
+    offset = 0.0
+    for seg in segments:
+        clip_transcript = transcripts_by_clip.get(seg["clip_index"], [])
+        for t in clip_transcript:
+            overlap_start = max(t["start"], seg["start"])
+            overlap_end = min(t["end"], seg["end"])
+            if overlap_end > overlap_start:
+                entries.append({
+                    "start": offset + (overlap_start - seg["start"]),
+                    "end": offset + (overlap_end - seg["start"]),
+                    "text": t["text"],
+                })
+        offset += seg["end"] - seg["start"]
+    return entries
+
+
+def _srt_timestamp(seconds):
+    seconds = max(0.0, seconds)
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    millis = int(round((seconds - int(seconds)) * 1000))
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+
+def _write_srt(caption_entries, output_dir):
+    entries = [e for e in caption_entries if e["end"] > e["start"] and e["text"].strip()]
+    if not entries:
+        return None
+    entries.sort(key=lambda e: e["start"])
+    srt_path = os.path.join(output_dir, f"captions_{uuid.uuid4().hex[:10]}.srt")
+    lines = []
+    for i, e in enumerate(entries, start=1):
+        lines.append(str(i))
+        lines.append(f"{_srt_timestamp(e['start'])} --> {_srt_timestamp(e['end'])}")
+        lines.append(e["text"].strip())
+        lines.append("")
+    with open(srt_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+    return srt_path
+
+
+def _escape_for_filter_path(path):
+    # ffmpeg's filtergraph option parser treats ':' and '\' specially even
+    # inside a filename argument -- escape them so a path is never
+    # misread as extra filter options.
+    return path.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+
+
+# ---------------------------------------------------------------------
+# Speed change
+# ---------------------------------------------------------------------
+
+def _atempo_chain(factor):
+    """atempo's single-instance range is narrower than the overall speed
+    range we allow, so chain multiple stages to reach any factor in
+    [MIN_SPEED_FACTOR, MAX_SPEED_FACTOR] safely."""
+    factor = max(MIN_SPEED_FACTOR, min(MAX_SPEED_FACTOR, factor))
+    stages = []
+    remaining = factor
+    while remaining > 2.0:
+        stages.append(2.0)
+        remaining /= 2.0
+    while remaining < 0.5:
+        stages.append(0.5)
+        remaining /= 0.5
+    stages.append(remaining)
+    return ",".join(f"atempo={s:.4f}" for s in stages)
+
+
+def _change_speed(input_path, output_dir, factor, on_progress=None):
+    factor = max(MIN_SPEED_FACTOR, min(MAX_SPEED_FACTOR, factor))
+    output_path = os.path.join(output_dir, f"_speed_{uuid.uuid4().hex[:10]}.mp4")
+    pts_multiplier = 1.0 / factor
+    args = [
+        "-i", input_path,
+        "-vf", f"setpts={pts_multiplier:.6f}*PTS",
+        "-af", _atempo_chain(factor),
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac",
+        output_path,
+    ]
+    orig_duration = probe_duration(input_path) or 0
+    expected_duration = orig_duration / factor if orig_duration else None
+    ok, error = _run_ffmpeg_progress(args, expected_duration, on_progress)
     if not ok:
         return False, None, error
-
-    allowed = set(allowed_agent_slugs)
-    parsed_tasks = []
-    for line in text.splitlines():
-        line = line.strip()
-        if not line or line.lower().startswith("plan summary"):
-            continue
-        if "|" not in line:
-            continue
-        slug_part, _, title_part = line.partition("|")
-        slug = slug_part.strip().strip("-").strip().lower()
-        title = title_part.strip()
-        if slug in allowed and title:
-            parsed_tasks.append((slug, title))
-
-    if not parsed_tasks:
-        return False, None, "OpenAI's response didn't match the expected plan format, so no real plan could be parsed."
-
-    return True, parsed_tasks, None
+    if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+        return False, None, "FFmpeg finished but produced no output file."
+    return True, output_path, None
 
 
-def generate_performance_analysis(request_summary, brand_profile=None):
-    """Performance Analyst agent: analyze real numbers the creator pastes
-    in (views, engagement, watch time, etc.).
+# ---------------------------------------------------------------------
+# Cutting, normalizing, and (optionally transition-blended) concatenation
+# ---------------------------------------------------------------------
 
-    Honesty-critical: this never invents a number. It only analyzes data
-    the creator actually gave it, and says so plainly if none was given.
-    llm_client.PERFORMANCE_ANALYST_SYSTEM_PROMPT enforces that.
+def _normalize_segment(source_path, seg, width, height, output_dir, work_id, index):
+    """Cut one chosen time range out of one source clip, and re-encode it
+    to identical codec/fps/resolution/audio format so every segment can be
+    joined cleanly afterwards -- regardless of what the raw footage
+    originally looked like."""
+    duration = max(0.1, seg["end"] - seg["start"])
+    seg_out = os.path.join(output_dir, f"_seg_{work_id}_{index}.mp4")
+    has_audio = _has_audio_stream(source_path)
+    vf = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},fps=30"
+    args = ["-ss", str(seg["start"]), "-i", source_path]
+    if not has_audio:
+        args += ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100"]
+    args += ["-t", str(duration), "-vf", vf, "-map", "0:v:0"]
+    args += ["-map", "0:a:0?"] if has_audio else ["-map", "1:a:0"]
+    args += [
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+        "-c:a", "aac", "-ar", "44100", "-ac", "2", "-r", "30",
+        seg_out,
+    ]
+    ok, error = _run_ffmpeg(args, timeout=STEP_TIMEOUT_SECONDS)
+    if not ok or not os.path.exists(seg_out) or os.path.getsize(seg_out) == 0:
+        return None, error or "FFmpeg produced no output."
+    return seg_out, None
+
+
+def _concat_plain(segment_paths, output_dir, work_id):
+    """Fast path: plain hard cuts, stream-copy concat (no re-encode)."""
+    concat_list_path = os.path.join(output_dir, f"_concat_{work_id}.txt")
+    with open(concat_list_path, "w", encoding="utf-8") as f:
+        for p in segment_paths:
+            f.write(f"file '{p}'\n")
+    output_path = os.path.join(output_dir, f"_rough_{work_id}.mp4")
+    ok, error = _run_ffmpeg(
+        ["-f", "concat", "-safe", "0", "-i", concat_list_path, "-c", "copy", output_path],
+        timeout=STEP_TIMEOUT_SECONDS,
+    )
+    _cleanup_paths([concat_list_path])
+    if not ok or not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+        return None, error or "FFmpeg produced no output."
+    return output_path, None
+
+
+def _concat_with_transitions(segment_paths, segment_durations, style, requested_duration,
+                              output_dir, work_id, on_progress=None):
+    """Real path: cross-fade (or wipe/dissolve/etc.) transitions between
+    cuts, using FFmpeg's own xfade (video) + acrossfade (audio) filters --
+    not a fake dissolve, an actual blended re-encode."""
+    style = style if style in TRANSITION_STYLES and style != "none" else "fade"
+    n = len(segment_paths)
+    output_path = os.path.join(output_dir, f"_rough_{work_id}.mp4")
+
+    args = []
+    for p in segment_paths:
+        args += ["-i", p]
+
+    filter_parts = []
+    v_label, a_label = "0:v", "0:a"
+    running_duration = segment_durations[0]
+    for i in range(1, n):
+        t_i = max(0.1, min(requested_duration, 0.4 * segment_durations[i - 1], 0.4 * segment_durations[i]))
+        offset = max(0.0, running_duration - t_i)
+        out_v, out_a = f"v{i}", f"a{i}"
+        filter_parts.append(f"[{v_label}][{i}:v]xfade=transition={style}:duration={t_i:.3f}:offset={offset:.3f}[{out_v}]")
+        filter_parts.append(f"[{a_label}][{i}:a]acrossfade=d={t_i:.3f}[{out_a}]")
+        v_label, a_label = out_v, out_a
+        running_duration = running_duration + segment_durations[i] - t_i
+
+    args += [
+        "-filter_complex", ";".join(filter_parts),
+        "-map", f"[{v_label}]", "-map", f"[{a_label}]",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac",
+        output_path,
+    ]
+    ok, error = _run_ffmpeg_progress(args, running_duration, on_progress, timeout=STEP_TIMEOUT_SECONDS)
+    if not ok or not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+        return None, error or "FFmpeg produced no output."
+    return output_path, None
+
+
+# ---------------------------------------------------------------------
+# The real, enforced execution pipeline for a prompt-driven edit plan
+# ---------------------------------------------------------------------
+
+def execute_edit_plan(clip_paths, plan, output_dir, platform="reels_tiktok_shorts",
+                       caption_entries=None, on_progress=None):
+    """Runs the actual edit described by `plan` (see
+    llm_client.generate_edit_plan for its shape): cut & reassemble clips
+    (with transitions if asked) -> speed change (if asked) -> color grade
+    (if asked) -> burn in captions (if asked; `caption_entries` is the
+    final, already-translated-if-needed list the caller computed from the
+    real transcripts) -> text/quote overlay (if asked). Every step is
+    genuine FFmpeg work. on_progress(percent, message), if given, is
+    called with real, measured progress as each step actually runs.
+
+    Returns (ok, output_path, error, notes) -- notes is a list of
+    non-fatal warnings (e.g. a cosmetic step that failed) so one minor
+    step's failure never throws away an otherwise-real, finished edit.
     """
-    user_content = request_summary + _brand_context_block(brand_profile)
-    return _chat_completion(PERFORMANCE_ANALYST_SYSTEM_PROMPT, user_content)
+    if platform not in PLATFORM_DIMENSIONS:
+        return False, None, f"Unknown platform '{platform}'.", []
+    width, height = PLATFORM_DIMENSIONS[platform]
+    segments = plan["trim_and_reorder"]["segments"]
+    if not segments:
+        return False, None, "The edit plan had no usable segments to assemble.", []
+
+    notes = []
+    work_id = uuid.uuid4().hex[:10]
+    temp_paths = []
+
+    def report(step_base, step_weight, total_weight, message):
+        def _cb(pct):
+            if on_progress:
+                on_progress(step_base + (pct / 100.0) * (step_weight / total_weight * 100.0), message)
+        return _cb
+
+    # Work out which optional steps are active, to weight progress honestly.
+    transition = plan["trim_and_reorder"].get("transition")
+    has_transition = bool(transition and transition.get("style") not in (None, "none") and len(segments) > 1)
+    speed_plan = plan.get("change_speed")
+    color_plan = plan.get("color_grade")
+    captions_plan = plan.get("captions")
+    want_captions = bool(captions_plan and captions_plan.get("enabled") and caption_entries is not None)
+    overlay_plan = plan.get("text_overlay")
+
+    step_weights = [("cut", 35 if (has_transition or len(segments) > 1) else 12)]
+    if speed_plan:
+        step_weights.append(("speed", 15))
+    if color_plan:
+        step_weights.append(("color", 18))
+    if want_captions:
+        step_weights.append(("captions", 18))
+    if overlay_plan:
+        step_weights.append(("overlay", 12))
+    total_weight = sum(w for _, w in step_weights)
+    base = 0.0
+
+    try:
+        # --- Step: cut, normalize, (optionally) transition-blend, concat ---
+        step_weight = dict(step_weights)["cut"]
+        if on_progress:
+            on_progress(base, "Cutting your clips...")
+        seg_paths = []
+        seg_durations = []
+        for i, seg in enumerate(segments):
+            if on_progress:
+                on_progress(base + (i / max(1, len(segments))) * (step_weight / total_weight * 100 * 0.6),
+                            f"Cutting clip {i + 1} of {len(segments)}...")
+            seg_path, error = _normalize_segment(clip_paths[seg["clip_index"]], seg, width, height, output_dir, work_id, i)
+            if seg_path is None:
+                _cleanup_paths(temp_paths)
+                return False, None, f"Couldn't cut segment {i + 1} of {len(segments)}: {error}", notes
+            temp_paths.append(seg_path)
+            seg_paths.append(seg_path)
+            seg_durations.append(seg["end"] - seg["start"])
+
+        if len(seg_paths) == 1:
+            rough_cut_path = seg_paths[0]
+        elif has_transition:
+            rough_cut_path, error = _concat_with_transitions(
+                seg_paths, seg_durations, transition.get("style", "fade"),
+                float(transition.get("duration", 0.4)), output_dir, work_id,
+                on_progress=report(base + step_weight / total_weight * 100 * 0.6,
+                                    step_weight * 0.4, total_weight, "Blending transitions between your clips..."),
+            )
+            if rough_cut_path is None:
+                _cleanup_paths(temp_paths)
+                return False, None, f"Couldn't join the clips with transitions: {error}", notes
+        else:
+            rough_cut_path, error = _concat_plain(seg_paths, output_dir, work_id)
+            if rough_cut_path is None:
+                _cleanup_paths(temp_paths)
+                return False, None, f"Couldn't join the cut segments together: {error}", notes
+        if rough_cut_path not in temp_paths:
+            temp_paths.append(rough_cut_path)
+        current_path = rough_cut_path
+        base += step_weight / total_weight * 100
+        current_duration = probe_duration(current_path) or sum(seg_durations)
+        speed_factor = 1.0
+
+        # --- Step: speed change ---
+        if speed_plan:
+            step_weight = dict(step_weights)["speed"]
+            speed_factor = max(MIN_SPEED_FACTOR, min(MAX_SPEED_FACTOR, float(speed_plan.get("factor", 1.0))))
+            ok_speed, sped_path, error = _change_speed(
+                current_path, output_dir, speed_factor,
+                on_progress=report(base, step_weight, total_weight, f"Adjusting speed ({speed_factor:.2f}x)..."),
+            )
+            if not ok_speed:
+                notes.append(f"Speed change skipped: {error}")
+            else:
+                temp_paths.append(sped_path)
+                current_path = sped_path
+                current_duration = probe_duration(current_path) or (current_duration / speed_factor)
+            base += step_weight / total_weight * 100
+
+        # --- Step: color grade ---
+        if color_plan:
+            step_weight = dict(step_weights)["color"]
+            preset = color_plan.get("preset", "natural")
+            if preset not in COLOR_PRESETS:
+                notes.append(f"Color grade skipped: unknown preset '{preset}'.")
+            else:
+                graded_path = os.path.join(output_dir, f"_graded_{work_id}.mp4")
+                ok, error = _run_ffmpeg_progress(
+                    ["-i", current_path, "-vf", COLOR_PRESETS[preset],
+                     "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "copy", graded_path],
+                    current_duration, report(base, step_weight, total_weight, f"Applying '{preset}' color grade..."),
+                )
+                if ok and os.path.exists(graded_path) and os.path.getsize(graded_path) > 0:
+                    temp_paths.append(graded_path)
+                    current_path = graded_path
+                else:
+                    notes.append(f"Color grade skipped: {error}")
+            base += step_weight / total_weight * 100
+
+        # --- Step: burn in captions (already translated by the caller, if asked) ---
+        if want_captions:
+            step_weight = dict(step_weights)["captions"]
+            rescaled = [
+                {"start": e["start"] / speed_factor, "end": e["end"] / speed_factor, "text": e["text"]}
+                for e in caption_entries
+            ]
+            srt_path = _write_srt(rescaled, output_dir)
+            if srt_path:
+                temp_paths.append(srt_path)
+                captioned_path = os.path.join(output_dir, f"_captioned_{work_id}.mp4")
+                style = "FontName=DejaVu Sans,FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=0,Alignment=2,MarginV=70"
+                subtitles_filter = (
+                    f"subtitles={_escape_for_filter_path(srt_path)}:"
+                    f"fontsdir={_escape_for_filter_path(_FONTS_DIR)}:force_style='{style}'"
+                )
+                ok, error = _run_ffmpeg_progress(
+                    ["-i", current_path, "-vf", subtitles_filter,
+                     "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "copy", captioned_path],
+                    current_duration, report(base, step_weight, total_weight, "Burning in captions..."),
+                )
+                if ok and os.path.exists(captioned_path) and os.path.getsize(captioned_path) > 0:
+                    temp_paths.append(captioned_path)
+                    current_path = captioned_path
+                else:
+                    notes.append(f"Captions skipped: {error}")
+            base += step_weight / total_weight * 100
+
+        # --- Step: text/quote overlay ---
+        if overlay_plan and overlay_plan.get("text"):
+            step_weight = dict(step_weights)["overlay"]
+            q_start = overlay_plan.get("start", 0.0) / speed_factor
+            q_end = overlay_plan.get("end", q_start + 3.0) / speed_factor
+            quote_txt_path = os.path.join(output_dir, f"_overlay_{work_id}.txt")
+            with open(quote_txt_path, "w", encoding="utf-8") as f:
+                f.write(overlay_plan["text"])
+            temp_paths.append(quote_txt_path)
+            overlaid_path = os.path.join(output_dir, f"_overlaid_{work_id}.mp4")
+            drawtext_filter = (
+                f"drawtext=fontfile={_escape_for_filter_path(_FONT_PATH)}:"
+                f"textfile={_escape_for_filter_path(quote_txt_path)}:"
+                "fontsize=52:fontcolor=white:line_spacing=6:"
+                "box=1:boxcolor=black@0.55:boxborderw=24:"
+                "x=(w-text_w)/2:y=h*0.12:"
+                f"enable='between(t,{max(0.0, q_start):.3f},{max(q_start + 0.1, q_end):.3f})'"
+            )
+            ok, error = _run_ffmpeg_progress(
+                ["-i", current_path, "-vf", drawtext_filter,
+                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "copy", overlaid_path],
+                current_duration, report(base, step_weight, total_weight, "Adding text overlay..."),
+            )
+            if ok and os.path.exists(overlaid_path) and os.path.getsize(overlaid_path) > 0:
+                temp_paths.append(overlaid_path)
+                current_path = overlaid_path
+            else:
+                notes.append(f"Text overlay skipped: {error}")
+            base += step_weight / total_weight * 100
+
+        final_path = os.path.join(output_dir, f"edit_{work_id}.mp4")
+        if current_path == final_path:
+            pass
+        elif current_path in temp_paths:
+            shutil.copyfile(current_path, final_path)
+        else:
+            shutil.move(current_path, final_path)
+        temp_paths = [p for p in temp_paths if p != final_path]
+        _cleanup_paths(temp_paths)
+        if on_progress:
+            on_progress(100.0, "Done.")
+        return True, final_path, None, notes
+    except Exception as exc:  # last-resort honesty net -- never leave a job stuck silently
+        _cleanup_paths(temp_paths)
+        return False, None, f"Unexpected error while assembling the edit: {exc}", notes
+
+
+# ---------------------------------------------------------------------
+# Standalone utilities also used for transcription prep / future agents
+# ---------------------------------------------------------------------
+
+def reduce_noise(input_path, output_dir, level="standard"):
+    """AI Audio & Voice Agent: a real "clean dialogue" pass on the audio
+    track -- a highpass filter (removes low rumble), FFmpeg's afftdn
+    (real FFT-based noise reduction), and loudnorm (consistent loudness) --
+    using FFmpeg, not a simulated effect. Works on a standalone audio file
+    or a video file (keeps the video stream untouched, cleans the audio).
+    `level` picks how aggressive the noise reduction is (see
+    NOISE_REDUCTION_LEVELS); an unrecognized level falls back to
+    "standard" rather than failing."""
+    noise_floor = NOISE_REDUCTION_LEVELS.get(level, NOISE_REDUCTION_LEVELS["standard"])
+    ext = os.path.splitext(input_path)[1] or ".mp3"
+    output_path = os.path.join(output_dir, f"cleaned_{uuid.uuid4().hex[:10]}{ext}")
+    audio_filter = f"highpass=f=80,afftdn=nf={noise_floor},loudnorm=I=-16:TP=-1.5:LRA=11"
+    args = ["-i", input_path, "-af", audio_filter]
+    if _looks_like_video(input_path):
+        args += ["-c:v", "copy"]
+    args += [output_path]
+    ok, error = _run_ffmpeg(args)
+    if not ok:
+        return False, None, error
+    if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+        return False, None, "FFmpeg finished but produced no output file."
+    return True, output_path, None
+
+
+def generate_srt_file(caption_entries, output_dir):
+    """AI Audio & Voice Agent: write a standalone .srt subtitle file from
+    real transcribed (and, if requested, translated) caption entries --
+    the same real SRT writer the Video Editor uses internally to burn
+    captions into a video, exposed here for a caller that just wants the
+    subtitle file itself. Returns the file path, or None if there was no
+    usable speech to write (an honest empty result, not an error)."""
+    return _write_srt(caption_entries, output_dir)
+
+
+def extract_audio(input_path, output_dir):
+    """Pull the audio track out of a video file as a standalone .mp3 --
+    used before sending audio to OpenAI for transcription."""
+    output_path = os.path.join(output_dir, f"audio_{uuid.uuid4().hex[:10]}.mp3")
+    args = ["-i", input_path, "-vn", "-acodec", "libmp3lame", "-q:a", "2", output_path]
+    ok, error = _run_ffmpeg(args)
+    if not ok:
+        return False, None, error
+    if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+        return False, None, "FFmpeg finished but produced no output file."
+    return True, output_path, None
