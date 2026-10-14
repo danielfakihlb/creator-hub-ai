@@ -1,1 +1,67 @@
+{% extends "base_app.html" %}
+{% import "_icons.html" as ic %}
+{% block content %}
+<div class="page-header">
+  <div class="flex items-center gap-3">
+    <div class="agent-icon" style="width:46px;height:46px;">{{ ic.icon('waveform', 22) }}</div>
+    <div>
+      <div class="page-title">AI Audio & Voice Agent</div>
+      <div class="page-subtitle">One box, one file. Upload audio or video, describe what you want done to its audio, and the agent decides what to do -- cleaning up background noise, generating subtitles (with translation), or creating a voiceover narration -- only the real tools your instruction actually asks for.</div>
+    </div>
+  </div>
+  <a href="{{ url_for('agents.directory') }}" class="btn btn-ghost">All agents</a>
+</div>
 
+{% if not ffmpeg_ready %}
+<div class="alert alert-warning">
+  <strong>Setup required to go live:</strong> FFmpeg isn't installed on this server, so no audio can be processed for real yet. Nothing below will fabricate a result.
+</div>
+{% endif %}
+{% if not llm_ready %}
+<div class="alert alert-warning">
+  <strong>Needs an OpenAI key:</strong> transcription, translation, and voiceover generation use your connected OpenAI API key (see Account Settings &rarr; Integrations).
+</div>
+{% endif %}
+
+<div class="card mb-4">
+  <form method="post" action="{{ url_for('audio_voice.submit') }}" enctype="multipart/form-data">
+    <div class="field">
+      <label>Audio or video file</label>
+      <input type="file" name="clip" accept=".mp3,.wav,.m4a,.aac,.ogg,.flac,.mp4,.mov,.m4v,.webm,.avi,.mkv" required>
+    </div>
+    <div class="field">
+      <label>Describe what you want done</label>
+      <textarea name="instruction" rows="4" placeholder="e.g. Clean up the background noise in this recording.
+e.g. Generate subtitles for this video, translated to Spanish.
+e.g. Create a voiceover saying: &quot;Discipline beats motivation. Show up anyway.&quot; in a calm voice.
+e.g. Clean up the audio and also give me subtitles." required></textarea>
+      <div class="text-tertiary text-sm mt-1">The agent only does what you actually ask for -- it won't clean, transcribe, or narrate anything you didn't request.</div>
+    </div>
+    <button type="submit" class="btn btn-primary btn-block" {{ 'disabled' if not (ffmpeg_ready and llm_ready) }}>
+      {{ 'Run it' if (ffmpeg_ready and llm_ready) else 'Setup required (see above)' }}
+    </button>
+    <div class="text-tertiary text-sm mt-2">This runs real steps (planning, and whichever of transcription, translation, noise reduction, or voiceover generation you asked for) and can take a minute or more. You'll be taken to a live status page -- it won't leave you staring at a blank loading screen. If more than one file comes out of a request, they're bundled into one .zip download.</div>
+  </form>
+</div>
+
+{% if recent_tasks %}
+<div class="card">
+  <div class="text-sm text-secondary" style="font-weight:600; margin-bottom:8px;">Recent activity</div>
+  <div class="flex-col gap-2">
+    {% for t in recent_tasks %}
+    <div class="text-sm">
+      <span class="status-pill">
+        <span class="dot" style="background: {{ {'completed':'var(--success-500)','failed':'var(--danger-500)','running':'var(--warning-500)'}.get(t['status'], 'var(--text-tertiary)') }};"></span>
+        {{ t['status'] }}
+      </span>
+      {% if t['status'] in ('running', 'completed', 'failed') %}
+      <a href="{{ url_for('audio_voice.job_status', task_id=t['id']) }}">{{ t['request_summary'] }}</a>
+      {% else %}
+      <span class="text-tertiary">{{ t['request_summary'] }}</span>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}
