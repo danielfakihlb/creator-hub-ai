@@ -61,6 +61,17 @@ TRANSITION_STYLES = {
 MIN_SPEED_FACTOR = 0.25
 MAX_SPEED_FACTOR = 4.0
 
+# Noise-reduction strength presets for the AI Audio & Voice Agent -> the
+# noise floor (dB) passed to FFmpeg's afftdn filter. More negative = more
+# aggressive reduction. Paired with a highpass (removes low rumble) and
+# loudnorm (consistent loudness) for a real "clean dialogue" pass, not just
+# noise removal alone.
+NOISE_REDUCTION_LEVELS = {
+    "light": -18,
+    "standard": -25,
+    "heavy": -32,
+}
+
 
 def ffmpeg_available():
     return shutil.which("ffmpeg") is not None
@@ -68,6 +79,13 @@ def ffmpeg_available():
 
 def _looks_like_video(path):
     return os.path.splitext(path)[1].lower() in {".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv"}
+
+
+def is_video_file(path):
+    """Public wrapper so callers outside this module (the Audio & Voice
+    Agent's blueprint) can tell a video upload from an audio-only one
+    without reaching into a private helper."""
+    return _looks_like_video(path)
 
 
 def probe_duration(path):
@@ -581,13 +599,20 @@ def execute_edit_plan(clip_paths, plan, output_dir, platform="reels_tiktok_short
 # Standalone utilities also used for transcription prep / future agents
 # ---------------------------------------------------------------------
 
-def reduce_noise(input_path, output_dir):
-    """Audio & Voice (future): real FFT-based noise reduction on the audio
-    track, using FFmpeg's afftdn filter. Works on a standalone audio file
-    or a video file (keeps the video stream untouched, cleans the audio)."""
+def reduce_noise(input_path, output_dir, level="standard"):
+    """AI Audio & Voice Agent: a real "clean dialogue" pass on the audio
+    track -- a highpass filter (removes low rumble), FFmpeg's afftdn
+    (real FFT-based noise reduction), and loudnorm (consistent loudness) --
+    using FFmpeg, not a simulated effect. Works on a standalone audio file
+    or a video file (keeps the video stream untouched, cleans the audio).
+    `level` picks how aggressive the noise reduction is (see
+    NOISE_REDUCTION_LEVELS); an unrecognized level falls back to
+    "standard" rather than failing."""
+    noise_floor = NOISE_REDUCTION_LEVELS.get(level, NOISE_REDUCTION_LEVELS["standard"])
     ext = os.path.splitext(input_path)[1] or ".mp3"
-    output_path = os.path.join(output_dir, f"denoised_{uuid.uuid4().hex[:10]}{ext}")
-    args = ["-i", input_path, "-af", "afftdn=nf=-25"]
+    output_path = os.path.join(output_dir, f"cleaned_{uuid.uuid4().hex[:10]}{ext}")
+    audio_filter = f"highpass=f=80,afftdn=nf={noise_floor},loudnorm=I=-16:TP=-1.5:LRA=11"
+    args = ["-i", input_path, "-af", audio_filter]
     if _looks_like_video(input_path):
         args += ["-c:v", "copy"]
     args += [output_path]
@@ -597,6 +622,16 @@ def reduce_noise(input_path, output_dir):
     if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
         return False, None, "FFmpeg finished but produced no output file."
     return True, output_path, None
+
+
+def generate_srt_file(caption_entries, output_dir):
+    """AI Audio & Voice Agent: write a standalone .srt subtitle file from
+    real transcribed (and, if requested, translated) caption entries --
+    the same real SRT writer the Video Editor uses internally to burn
+    captions into a video, exposed here for a caller that just wants the
+    subtitle file itself. Returns the file path, or None if there was no
+    usable speech to write (an honest empty result, not an error)."""
+    return _write_srt(caption_entries, output_dir)
 
 
 def extract_audio(input_path, output_dir):
