@@ -243,6 +243,28 @@ def list_agent_tasks(user_id, agent_slug=None, limit=20):
     return query(sql, params)
 
 
+def update_agent_task(task_id, **fields):
+    """Partial update of an in-flight (or finished) agent_tasks row -- used
+    by background jobs (the AI Video Editor) to report real, live progress
+    as it actually happens, not a simulated one. Only the fields passed are
+    changed; e.g. update_agent_task(task_id, progress_percent=40,
+    status_message="Transcribing clip 2 of 3...").
+    """
+    allowed = {"status", "progress_percent", "status_message", "result_filename",
+               "result_summary", "error_message"}
+    fields = {k: v for k, v in fields.items() if k in allowed}
+    if not fields:
+        return
+    set_clause = ", ".join(f"{k} = ?" for k in fields) + ", updated_at = datetime('now')"
+    execute(f"UPDATE agent_tasks SET {set_clause} WHERE id = ?", list(fields.values()) + [task_id])
+
+
+def get_agent_task(user_id, task_id):
+    """Fetch one task row, scoped to its owner -- a job's live status is
+    only ever visible to the user who started it."""
+    return query("SELECT * FROM agent_tasks WHERE id = ? AND user_id = ?", (task_id, user_id), one=True)
+
+
 def recent_activity(user_id, limit=8):
     return query(
         "SELECT * FROM agent_tasks WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
