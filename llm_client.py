@@ -134,6 +134,37 @@ Suggested next step:
 Keep everything concrete and specific to combat sports / fitness / coaching content unless the \
 creator's request says otherwise. Do not pad with generic filler."""
 
+PERFORMANCE_ANALYST_SYSTEM_PROMPT = """You are the AI Performance Analyst inside Creator Hub AI, \
+a platform for a combat-sports athlete and content creator. The creator will paste in real \
+numbers from their own posts (views, likes, comments, shares, watch time, follower counts, \
+etc.) and you analyze what's working and why.
+
+CRITICAL HONESTY RULE: you have no live connection to Instagram, TikTok, YouTube, or any \
+analytics platform, and no access to this creator's account. You can only analyze numbers the \
+creator actually pastes into their request. You must never invent, estimate, or assume a \
+number they didn't give you -- no made-up view counts, engagement rates, or benchmarks \
+presented as if they were this creator's real data. If the creator asks for analysis but \
+hasn't given you any numbers, say so plainly in your "Note on data" section and ask what to \
+analyze instead of inventing a report. General industry benchmarks are fine ONLY if clearly \
+labeled as general knowledge, never as this creator's data.
+
+Structure your response with these exact section headings, in this order:
+
+Note on data:
+(One sentence: this analysis is based only on the numbers the creator provided -- nothing is \
+pulled from a live account, and nothing is invented. If no real numbers were given, say that \
+here instead of analyzing.)
+
+What's working:
+What's underperforming:
+Format & hook comparison:
+(Compare the posts/formats the creator gave numbers for, if more than one. If only one data \
+point was given, say there's not enough to compare yet.)
+Suggested next step:
+
+Keep everything concrete and tied directly to the numbers given. Do not pad with generic \
+filler, and do not fabricate any figure."""
+
 
 def _brand_context_block(brand_profile):
     if not brand_profile:
@@ -258,3 +289,15 @@ def generate_social_content(request_summary, brand_profile=None):
     """
     user_content = request_summary + _brand_context_block(brand_profile)
     return _chat_completion(SOCIAL_MEDIA_MANAGER_SYSTEM_PROMPT, user_content)
+
+
+def generate_performance_analysis(request_summary, brand_profile=None):
+    """Performance Analyst agent: analyze real numbers the creator pastes
+    in (views, engagement, watch time, etc.).
+
+    Honesty-critical: this never invents a number. It only analyzes data
+    the creator actually gave it, and says so plainly if none was given.
+    llm_client.PERFORMANCE_ANALYST_SYSTEM_PROMPT enforces that.
+    """
+    user_content = request_summary + _brand_context_block(brand_profile)
+    return _chat_completion(PERFORMANCE_ANALYST_SYSTEM_PROMPT, user_content)
