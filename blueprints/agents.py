@@ -37,7 +37,12 @@ AGENT_INTEGRATIONS = {
     # approval) that isn't built yet. Gating on "ads_platform" here would
     # have blocked the creative half of the agent for no honest reason.
     "ads_manager": ["llm_provider"],
-    "performance_analyst": ["analytics"],
+    # Performance Analyst's real job -- analyzing numbers the creator
+    # pastes in -- only needs the OpenAI key. A live analytics platform
+    # connection would be a nice-to-have (auto-pulling the numbers
+    # instead of pasting them), not a requirement to produce honest
+    # analysis of data the creator already has.
+    "performance_analyst": ["llm_provider"],
 }
 
 
@@ -96,6 +101,21 @@ def _run_social_media_manager(user, request_summary):
     return llm_client.generate_social_content(request_summary, brand_profile=brand_profile)
 
 
+def _run_performance_analyst(user, request_summary):
+    """Real processing for the Performance Analyst agent: an actual call
+    to OpenAI that analyzes real numbers the creator pastes into their
+    request (views, engagement, watch time, etc.).
+
+    Honesty-critical: this never invents a number. It only analyzes what
+    the creator actually gave it -- llm_client.PERFORMANCE_ANALYST_SYSTEM_PROMPT
+    forbids fabricating stats, and the output always opens with a
+    "Note on data" line making that explicit.
+    """
+    profiles = db.list_brand_profiles(user["id"])
+    brand_profile = dict(profiles[0]) if profiles else None
+    return llm_client.generate_performance_analysis(request_summary, brand_profile=brand_profile)
+
+
 # Agents with real, working processing wired up. Every other agent still
 # needs its backend built even once its integration key is connected --
 # AGENT_INTEGRATIONS only tracks whether the *credential* is present, this
@@ -107,6 +127,7 @@ AGENT_HANDLERS = {
     "trend_researcher": _run_trend_researcher,
     "ads_manager": _run_ads_manager,
     "social_media_manager": _run_social_media_manager,
+    "performance_analyst": _run_performance_analyst,
 }
 
 
