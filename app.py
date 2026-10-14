@@ -11,6 +11,10 @@ import access
 def create_app():
     app = Flask(__name__)
     app.secret_key = config.SECRET_KEY
+    # Video uploads (Video Studio) are real files, not text -- cap the
+    # size so one huge upload can't exhaust this server's disk or memory.
+    # 250MB comfortably covers a short raw clip for a demo.
+    app.config["MAX_CONTENT_LENGTH"] = 250 * 1024 * 1024
 
     db.init_db()  # idempotent -- CREATE TABLE IF NOT EXISTS
     db.seed_demo_account()
@@ -21,6 +25,7 @@ def create_app():
     from blueprints.agents import bp as agents_bp
     from blueprints.projects import bp as projects_bp
     from blueprints.media import bp as media_bp
+    from blueprints.media_tools import bp as media_tools_bp
     from blueprints.brand import bp as brand_bp
     from blueprints.campaigns import bp as campaigns_bp
     from blueprints.billing import bp as billing_bp
@@ -33,6 +38,7 @@ def create_app():
     app.register_blueprint(agents_bp)
     app.register_blueprint(projects_bp)
     app.register_blueprint(media_bp)
+    app.register_blueprint(media_tools_bp)
     app.register_blueprint(brand_bp)
     app.register_blueprint(campaigns_bp)
     app.register_blueprint(billing_bp)
@@ -57,6 +63,10 @@ def create_app():
     @app.errorhandler(404)
     def not_found(e):
         return "404 -- that page doesn't exist.", 404
+
+    @app.errorhandler(413)
+    def too_large(e):
+        return "413 -- that file is too large. The limit for a single upload is 250MB.", 413
 
     return app
 
