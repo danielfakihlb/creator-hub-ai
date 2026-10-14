@@ -185,7 +185,7 @@ AGENTS = {
         "icon": "layers",
         "plans": ["creator", "full_studio"],
         "status": "orchestration_ready",
-        "requires_integration": "Fully functional for task orchestration; quality of generated plans improves once the Scriptwriter/Trend Researcher integrations above are connected.",
+        "requires_integration": "Fully functional for task orchestration. With your connected OpenAI key, it writes a custom task breakdown for each campaign's actual objective; if no key is connected, or the objective field is left blank, it falls back to a standard task template instead.",
         "capabilities": [
             "Breaks goals into tasks across agents",
             "Tracks dependencies & status",
@@ -285,7 +285,7 @@ INTEGRATIONS = {
         "env_vars": ["STRIPE_SECRET_KEY", "STRIPE_PUBLISHABLE_KEY"],
     },
     "llm_provider": {
-        "label": "OpenAI API key (Scriptwriter / Trend Researcher / Ads Manager / Campaign Planner)",
+        "label": "OpenAI API key (Scriptwriter / Trend Researcher / Ads Manager / Social Media Manager / Performance Analyst / Campaign Planner)",
         "env_vars": ["OPENAI_API_KEY"],
     },
     "video_processing": {
