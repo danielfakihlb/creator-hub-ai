@@ -15,6 +15,12 @@ bp = Blueprint("agents", __name__)
 # sidebar / the "Also included" section instead of /agents/<slug>.)
 DEDICATED_PAGE_REDIRECTS = {
     "campaign_planner": "campaigns.list_view",
+    # Video Editor and Color Grading take an actual video file and hand
+    # back an actual processed file -- that doesn't fit the generic
+    # "describe what you want in a text box" workspace below, so both
+    # route to the real upload/download page in blueprints/media_tools.py.
+    "video_editor": "media_tools.studio",
+    "color_grading": "media_tools.studio",
 }
 
 # Maps an agent to the integration key(s) (config.INTEGRATIONS) its real
