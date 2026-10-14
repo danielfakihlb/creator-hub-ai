@@ -1,7 +1,8 @@
 """Real integration with an external language-model API (OpenAI).
 
 Shared by every agent that calls OpenAI for real (Scriptwriter, Trend
-Researcher, and any future one) -- each agent gets its own system prompt
+Researcher, Ads Manager, Social Media Manager, Performance Analyst,
+Campaign Planner, and any future one) -- each agent gets its own system prompt
 below, but they all go through the same honest call-and-error-handling
 path in `_chat_completion`.
 
@@ -166,6 +167,30 @@ Keep everything concrete and tied directly to the numbers given. Do not pad with
 filler, and do not fabricate any figure."""
 
 
+CAMPAIGN_PLANNER_SYSTEM_PROMPT = """You are the AI Campaign Planner inside Creator Hub AI, a \
+content platform for a combat-sports athlete and content creator. Given a campaign's name and \
+objective, break it into an ordered sequence of tasks, each one assigned to exactly one of this \
+platform's specialist agents.
+
+You may ONLY use these agent slugs, exactly as spelled, one per task:
+{agent_slug_list}
+
+CRITICAL FORMAT RULE: reply with nothing except the plan itself, in this exact format and \
+nothing else -- no extra commentary before or after it:
+
+Plan summary: <one sentence describing the overall approach for this specific campaign>
+<agent_slug> | <short, concrete task title for that agent, specific to this campaign>
+<agent_slug> | <short, concrete task title for that agent, specific to this campaign>
+(repeat for 3 to 8 tasks total, in the order they should happen)
+
+CRITICAL SCOPE RULE: you are not launching, running, or executing anything here -- you are only \
+proposing which agents should do what, in what order, for this specific campaign. Pick only \
+agents that are actually relevant to this campaign's objective; don't force in an agent that \
+doesn't fit it. Keep every task title concrete and specific to the campaign name/objective \
+given -- never generic filler, and never a task title that doesn't match what that agent \
+actually does."""
+
+
 def _brand_context_block(brand_profile):
     if not brand_profile:
         return ""
@@ -289,6 +314,45 @@ def generate_social_content(request_summary, brand_profile=None):
     """
     user_content = request_summary + _brand_context_block(brand_profile)
     return _chat_completion(SOCIAL_MEDIA_MANAGER_SYSTEM_PROMPT, user_content)
+
+
+def generate_campaign_plan(name, objective, allowed_agent_slugs, brand_profile=None):
+    """Campaign Planner agent: ask OpenAI to break this specific campaign
+    into an ordered list of (agent_slug, task_title) steps tailored to its
+    name/objective, instead of always handing back the same fixed template.
+
+    Returns (ok, parsed_tasks, error_message). parsed_tasks is a list of
+    (agent_slug, task_title) tuples already validated against
+    allowed_agent_slugs -- the caller never has to re-check them. If the
+    model's reply can't be parsed into at least one valid task, this
+    returns ok=False with an honest error so the caller falls back to the
+    standard task template rather than silently creating an empty plan.
+    """
+    agent_slug_list = "\n".join(f"- {slug}" for slug in allowed_agent_slugs)
+    system_prompt = CAMPAIGN_PLANNER_SYSTEM_PROMPT.format(agent_slug_list=agent_slug_list)
+    user_content = f"Campaign name: {name}\nCampaign objective: {objective}" + _brand_context_block(brand_profile)
+    ok, text, error = _chat_completion(system_prompt, user_content)
+    if not ok:
+        return False, None, error
+
+    allowed = set(allowed_agent_slugs)
+    parsed_tasks = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.lower().startswith("plan summary"):
+            continue
+        if "|" not in line:
+            continue
+        slug_part, _, title_part = line.partition("|")
+        slug = slug_part.strip().strip("-").strip().lower()
+        title = title_part.strip()
+        if slug in allowed and title:
+            parsed_tasks.append((slug, title))
+
+    if not parsed_tasks:
+        return False, None, "OpenAI's response didn't match the expected plan format, so no real plan could be parsed."
+
+    return True, parsed_tasks, None
 
 
 def generate_performance_analysis(request_summary, brand_profile=None):
