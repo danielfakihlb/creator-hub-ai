@@ -1,1 +1,103 @@
+{% extends "base_app.html" %}
+{% import "_icons.html" as ic %}
+{% block content %}
+<div class="page-header">
+  <div class="flex items-center gap-3">
+    <div class="agent-icon" style="width:46px;height:46px;">{{ ic.icon('waveform', 22) }}</div>
+    <div>
+      <div class="page-title">AI Audio & Voice Agent</div>
+      <div class="page-subtitle">{{ task['request_summary'] }}</div>
+    </div>
+  </div>
+  <a href="{{ url_for('audio_voice.studio') }}" class="btn btn-ghost">Back to Audio & Voice</a>
+</div>
 
+<div class="card">
+  <div id="job-live" data-task-id="{{ task['id'] }}" data-poll-url="{{ url_for('audio_voice.job_poll', task_id=task['id']) }}" data-download-base="{{ url_for('audio_voice.download', filename='__FILE__') }}">
+    <div id="job-in-progress" style="display:none;">
+      <div class="flex items-center gap-3 mb-2">
+        <strong id="job-status-message">Working...</strong>
+        <span id="job-elapsed" class="text-tertiary text-sm"></span>
+      </div>
+      <div style="background:var(--surface-2,#1b1d24); border-radius:8px; overflow:hidden; height:14px; width:100%;">
+        <div id="job-progress-bar" style="background:var(--brand-500,#7c5cff); height:100%; width:0%; transition:width 0.4s ease;"></div>
+      </div>
+      <div id="job-progress-pct" class="text-tertiary text-sm mt-1">0%</div>
+      <div class="text-tertiary text-sm mt-3">This page updates itself -- no need to refresh. Real, measured progress, not an animation.</div>
+    </div>
+
+    <div id="job-completed" style="display:none;">
+      <div class="alert alert-success">
+        <strong>Your result is ready</strong><br>
+        <span id="job-result-summary" class="text-sm"></span><br>
+        <a id="job-download-link" href="#" class="btn btn-primary mt-2" style="display:inline-block;">{{ ic.icon('upload', 16) }} Download result</a>
+      </div>
+    </div>
+
+    <div id="job-failed" style="display:none;">
+      <div class="alert alert-danger">
+        <strong>This request couldn't be completed</strong><br>
+        <span id="job-error-message" class="text-sm"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var root = document.getElementById('job-live');
+  var pollUrl = root.getAttribute('data-poll-url');
+  var downloadBase = root.getAttribute('data-download-base');
+  var startedAt = Date.now();
+  var inProgressEl = document.getElementById('job-in-progress');
+  var completedEl = document.getElementById('job-completed');
+  var failedEl = document.getElementById('job-failed');
+  var statusMessageEl = document.getElementById('job-status-message');
+  var elapsedEl = document.getElementById('job-elapsed');
+  var barEl = document.getElementById('job-progress-bar');
+  var pctEl = document.getElementById('job-progress-pct');
+  var timer = null;
+
+  function formatElapsed() {
+    var s = Math.floor((Date.now() - startedAt) / 1000);
+    var m = Math.floor(s / 60);
+    s = s % 60;
+    return m > 0 ? (m + 'm ' + s + 's elapsed') : (s + 's elapsed');
+  }
+
+  function showOnly(el) {
+    [inProgressEl, completedEl, failedEl].forEach(function (e) { e.style.display = (e === el) ? 'block' : 'none'; });
+  }
+
+  function poll() {
+    fetch(pollUrl, {cache: 'no-store'})
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.status === 'completed') {
+          clearInterval(timer);
+          showOnly(completedEl);
+          document.getElementById('job-result-summary').textContent = data.result_summary || '';
+          var link = document.getElementById('job-download-link');
+          link.href = downloadBase.replace('__FILE__', encodeURIComponent(data.result_filename));
+        } else if (data.status === 'failed') {
+          clearInterval(timer);
+          showOnly(failedEl);
+          document.getElementById('job-error-message').textContent = data.error_message || 'Unknown error.';
+        } else {
+          showOnly(inProgressEl);
+          var pct = Math.max(0, Math.min(100, data.progress_percent || 0));
+          barEl.style.width = pct + '%';
+          pctEl.textContent = Math.round(pct) + '%';
+          statusMessageEl.textContent = data.status_message || 'Working...';
+          elapsedEl.textContent = formatElapsed();
+        }
+      })
+      .catch(function () { /* transient network hiccup -- keep polling, don't alarm the user */ });
+  }
+
+  showOnly(inProgressEl);
+  poll();
+  timer = setInterval(poll, 2000);
+})();
+</script>
+{% endblock %}
