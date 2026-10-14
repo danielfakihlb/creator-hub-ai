@@ -117,6 +117,12 @@ CREATE TABLE IF NOT EXISTS agent_tasks (
     status          TEXT NOT NULL DEFAULT 'pending', -- 'pending' | 'running' | 'completed' | 'failed' | 'needs_integration'
     result_summary  TEXT,
     error_message   TEXT,
+    -- Live job tracking, used by long-running background jobs (the AI Video
+    -- Editor) so the UI can show a real, honest progress bar and elapsed
+    -- status instead of a blind "loading" page with no feedback.
+    progress_percent INTEGER,
+    status_message  TEXT,
+    result_filename TEXT,
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
