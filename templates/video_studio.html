@@ -5,8 +5,8 @@
   <div class="flex items-center gap-3">
     <div class="agent-icon" style="width:46px;height:46px;">{{ ic.icon('video', 22) }}</div>
     <div>
-      <div class="page-title">Video Studio</div>
-      <div class="page-subtitle">Real editing and color grading, powered by FFmpeg running on this server -- upload a clip, get a real processed file back.</div>
+      <div class="page-title">AI Video Editor</div>
+      <div class="page-subtitle">One box, whatever you want. Upload raw footage, describe the edit in plain language, and the agent decides what to do -- cutting, transitions, speed, color grading, captions (with translation), a text overlay -- only the real tools your instruction actually asks for.</div>
     </div>
   </div>
   <a href="{{ url_for('agents.directory') }}" class="btn btn-ghost">All agents</a>
@@ -17,96 +17,59 @@
   <strong>Setup required to go live:</strong> FFmpeg isn't installed on this server, so no video can be processed for real yet. Nothing below will fabricate a result.
 </div>
 {% endif %}
-
-{% if last_result %}
-<div class="alert alert-success">
-  <strong>{{ last_result.label }}</strong><br>
-  <span class="text-sm">{{ last_result.detail }}</span><br>
-  <a href="{{ url_for('media_tools.download', filename=last_result.filename) }}" class="btn btn-primary mt-2" style="display:inline-block;">{{ ic.icon('upload', 16) }} Download result</a>
+{% if not llm_ready %}
+<div class="alert alert-warning">
+  <strong>Needs an OpenAI key:</strong> transcription and edit planning use your connected OpenAI API key (see Account Settings &rarr; Integrations).
 </div>
 {% endif %}
 
-<div class="grid grid-2" style="grid-template-columns: 1fr 1fr;">
-  <div class="card">
-    <h3 style="font-size:15px; margin-bottom:4px;">AI Video Editor -- edit for a platform</h3>
-    <div class="text-tertiary text-sm mb-4">Trims to a time range (optional) and resizes/crops for real, with no letterboxing, to the exact dimensions each platform expects.</div>
-    <form method="post" action="{{ url_for('media_tools.edit_video') }}" enctype="multipart/form-data">
-      <div class="field">
-        <label>Video file</label>
-        <input type="file" name="video_file" accept=".mp4,.mov,.m4v,.webm,.avi,.mkv" required>
-      </div>
-      <div class="field">
-        <label>Platform</label>
-        <select name="platform">
-          {% for slug, label in platform_labels.items() %}
-          <option value="{{ slug }}">{{ label }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="flex gap-3">
-        <div class="field" style="flex:1;">
-          <label>Start (seconds, optional)</label>
-          <input type="number" step="0.1" min="0" name="start_seconds" placeholder="0">
-        </div>
-        <div class="field" style="flex:1;">
-          <label>End (seconds, optional)</label>
-          <input type="number" step="0.1" min="0" name="end_seconds" placeholder="e.g. 30">
-        </div>
-      </div>
-      <button type="submit" class="btn btn-primary btn-block" {{ 'disabled' if not ffmpeg_ready }}>{{ 'Edit video' if ffmpeg_ready else 'FFmpeg not available' }}</button>
-    </form>
-
-    {% if recent_video_tasks %}
-    <div class="divider"></div>
-    <div class="text-sm text-secondary" style="font-weight:600; margin-bottom:8px;">Recent edits</div>
-    <div class="flex-col gap-2">
-      {% for t in recent_video_tasks %}
-      <div class="text-sm">
-        <span class="status-pill">
-          <span class="dot" style="background: {{ {'completed':'var(--success-500)','failed':'var(--danger-500)'}.get(t['status'], 'var(--text-tertiary)') }};"></span>
-          {{ t['status'] }}
-        </span>
-        <span class="text-tertiary">{{ t['request_summary'] }}</span>
-      </div>
-      {% endfor %}
+<div class="card mb-4">
+  <form method="post" action="{{ url_for('media_tools.submit') }}" enctype="multipart/form-data">
+    <div class="field">
+      <label>Raw footage clips (up to {{ max_reel_clips }})</label>
+      <input type="file" name="clips" accept=".mp4,.mov,.m4v,.webm,.avi,.mkv" multiple required>
     </div>
-    {% endif %}
-  </div>
-
-  <div class="card">
-    <h3 style="font-size:15px; margin-bottom:4px;">AI Color Grading -- apply a look</h3>
-    <div class="text-tertiary text-sm mb-4">Applies a real color adjustment to the whole clip. An automatic, good-enough grade -- not a frame-by-frame, shot-matched correction a human colorist would do.</div>
-    <form method="post" action="{{ url_for('media_tools.grade_video') }}" enctype="multipart/form-data">
-      <div class="field">
-        <label>Video file</label>
-        <input type="file" name="video_file" accept=".mp4,.mov,.m4v,.webm,.avi,.mkv" required>
-      </div>
-      <div class="field">
-        <label>Look</label>
-        <select name="preset">
-          {% for slug, label in color_preset_labels.items() %}
-          <option value="{{ slug }}">{{ label }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <button type="submit" class="btn btn-primary btn-block" {{ 'disabled' if not ffmpeg_ready }}>{{ 'Apply grade' if ffmpeg_ready else 'FFmpeg not available' }}</button>
-    </form>
-
-    {% if recent_color_tasks %}
-    <div class="divider"></div>
-    <div class="text-sm text-secondary" style="font-weight:600; margin-bottom:8px;">Recent grades</div>
-    <div class="flex-col gap-2">
-      {% for t in recent_color_tasks %}
-      <div class="text-sm">
-        <span class="status-pill">
-          <span class="dot" style="background: {{ {'completed':'var(--success-500)','failed':'var(--danger-500)'}.get(t['status'], 'var(--text-tertiary)') }};"></span>
-          {{ t['status'] }}
-        </span>
-        <span class="text-tertiary">{{ t['request_summary'] }}</span>
-      </div>
-      {% endfor %}
+    <div class="field">
+      <label>Describe what you want done</label>
+      <textarea name="instruction" rows="4" placeholder="e.g. Just add burned-in captions of what I'm saying.
+e.g. Cut these three clips into an Instagram Reel, crossfade between cuts, apply a dark cinematic color grade, and overlay the quote &quot;Discipline beats motivation.&quot;
+e.g. Translate the captions to Spanish.
+e.g. Slow this down to half speed and add captions." required></textarea>
+      <div class="text-tertiary text-sm mt-1">The agent only does what you actually ask for -- it won't cut, grade, or caption anything you didn't request.</div>
     </div>
-    {% endif %}
+    <div class="field">
+      <label>Output shape</label>
+      <select name="platform">
+        {% for slug, label in platform_labels.items() %}
+        <option value="{{ slug }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="btn btn-primary btn-block" {{ 'disabled' if not (ffmpeg_ready and llm_ready) }}>
+      {{ 'Start the edit' if (ffmpeg_ready and llm_ready) else 'Setup required (see above)' }}
+    </button>
+    <div class="text-tertiary text-sm mt-2">This runs several real steps (transcription, planning, one or more video encodes) and can take a minute or more. You'll be taken to a live status page -- it won't leave you staring at a blank loading screen.</div>
+  </form>
+</div>
+
+{% if recent_tasks %}
+<div class="card">
+  <div class="text-sm text-secondary" style="font-weight:600; margin-bottom:8px;">Recent activity</div>
+  <div class="flex-col gap-2">
+    {% for t in recent_tasks %}
+    <div class="text-sm">
+      <span class="status-pill">
+        <span class="dot" style="background: {{ {'completed':'var(--success-500)','failed':'var(--danger-500)','running':'var(--warning-500)'}.get(t['status'], 'var(--text-tertiary)') }};"></span>
+        {{ t['status'] }}
+      </span>
+      {% if t['status'] in ('running', 'completed', 'failed') %}
+      <a href="{{ url_for('media_tools.job_status', task_id=t['id']) }}">{{ t['request_summary'] }}</a>
+      {% else %}
+      <span class="text-tertiary">{{ t['request_summary'] }}</span>
+      {% endif %}
+    </div>
+    {% endfor %}
   </div>
 </div>
+{% endif %}
 {% endblock %}
