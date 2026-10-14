@@ -2,9 +2,16 @@
 
 Shared by every agent that calls OpenAI for real (Scriptwriter, Trend
 Researcher, Ads Manager, Social Media Manager, Performance Analyst,
-Campaign Planner, and any future one) -- each agent gets its own system prompt
-below, but they all go through the same honest call-and-error-handling
-path in `_chat_completion`.
+Campaign Planner, AI Video Editor, and any future one) -- each agent gets
+its own system prompt below, but the text-generating ones all go through
+the same honest call-and-error-handling path in `_chat_completion`. The
+AI Video Editor also uses `transcribe_audio` (OpenAI's Whisper API, real
+speech-to-text with timestamps), `generate_edit_plan` (turns a free-text
+instruction + each clip's real duration/transcript into a machine-
+readable operations plan -- which real tools to run and with what
+parameters -- that media_processing.py then executes with FFmpeg), and
+`translate_caption_segments` (translates already-transcribed caption text
+into another language when asked, keeping timing untouched).
 
 Design rules this file follows, straight from the project spec:
   - The API key is NEVER hardcoded. It's read from the OPENAI_API_KEY
@@ -18,12 +25,18 @@ Design rules this file follows, straight from the project spec:
     and OpenAI's plain REST API -- no OpenAI SDK package required.
 """
 
+import json
 import os
 import requests
 
+import media_processing as mp
+
 OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
+OPENAI_TRANSCRIPTION_URL = "https://api.openai.com/v1/audio/transcriptions"
 MODEL = "gpt-4o-mini"  # inexpensive, good-quality model -- stretches a small API budget
+TRANSCRIPTION_MODEL = "whisper-1"
 REQUEST_TIMEOUT_SECONDS = 45
+TRANSCRIPTION_TIMEOUT_SECONDS = 120  # audio upload + transcription takes longer than a chat call
 
 SCRIPTWRITER_SYSTEM_PROMPT = """You are the AI Scriptwriter inside Creator Hub AI, a content-creation \
 platform for a combat-sports athlete and content creator. Given a creator's request, \
@@ -189,6 +202,318 @@ agents that are actually relevant to this campaign's objective; don't force in a
 doesn't fit it. Keep every task title concrete and specific to the campaign name/objective \
 given -- never generic filler, and never a task title that doesn't match what that agent \
 actually does."""
+
+
+VIDEO_EDITOR_SYSTEM_PROMPT = """You are the editing brain behind the AI Video Editor inside \
+Creator Hub AI, a platform for a combat-sports athlete and content creator. The creator uploads \
+one or more raw footage clips and describes, in plain language, whatever they want done to them -- \
+anything from "just add captions" to "translate the captions to Spanish" to a full cut-and-reorder \
+edit with transitions, color grading, and a text overlay. You do not generate any video yourself: \
+you only decide WHICH of the real tools below should run, and with what parameters, by replying \
+with a precise, machine-readable OPERATIONS PLAN that a real video-processing pipeline will \
+execute exactly as you specify. Only include an operation the creator's instruction actually \
+calls for -- never add a step they didn't ask for.
+
+WHAT YOU ARE GIVEN: for each uploaded clip, its index (0-based), its real duration in seconds, \
+and a transcript of what is actually said in it (a list of [start-end] spoken segments, or a note \
+that no speech was detected).
+
+THE REAL TOOLS AVAILABLE (each is its own optional key in your reply; omit a key entirely, or set \
+it to null, if the creator didn't ask for that operation):
+
+- trim_and_reorder: cut specific time ranges out of specific clips and join them in a specific \
+order. Omit this (or set it to null) if the creator wants the clip(s) used in full, untouched, in \
+upload order -- e.g. "just add captions to this" needs no cutting at all.
+  - "segments": ordered list of {"clip_index", "start", "end"}. Every clip_index must be one you \
+were actually given, and start/end must fall strictly within that clip's real duration.
+  - "transition": optional {"style", "duration"} applied BETWEEN every adjacent pair of segments. \
+"style" must be one of: none, fade, fadeblack, wipeleft, wiperight, slideleft, slideright, \
+circleopen, dissolve, smoothleft, smoothright. "duration" is seconds (e.g. 0.3-1.0). Only include \
+this if the creator asked for transitions/cuts-with-style between clips; a plain hard cut needs no \
+transition object at all.
+- change_speed: {"factor"} -- a number where 2.0 is twice as fast (slow-motion is below 1.0, e.g. \
+0.5 for half speed). Only include this if the creator explicitly asked for a speed change, \
+slow-motion, or a timelapse/sped-up effect.
+- color_grade: {"preset"} -- one of: natural, vibrant, dark_cinematic, documentary, luxury. Only \
+include this if the creator asked for a color grade, a "look," or a cinematic/vibrant/moody style.
+- captions: {"enabled": true, "translate_to": null or a language name like "Spanish"} -- burns in \
+real captions transcribed from the speech. Set "translate_to" only if the creator explicitly asked \
+for the captions/subtitles in another language; otherwise leave it null (captions stay in the \
+original spoken language).
+- text_overlay: {"text", "start", "end"} -- an on-screen text/quote overlay. If the creator gave \
+you their own exact words (e.g. in quotation marks, or clearly dictated), use that text VERBATIM -- \
+never rewrite it. If they asked for a motivational quote/message/on-screen text but gave no exact \
+words, write a short original one yourself that fits the footage and their instruction. Omit this \
+key entirely if they didn't ask for any on-screen text.
+
+CRITICAL HONESTY RULES:
+- Never invent spoken words -- only reference what the given transcript actually says.
+- You have no ability to see the footage itself -- you cannot judge framing, lighting, or visual \
+quality. Base cutting decisions only on the transcript content, clip durations, and the creator's \
+instruction.
+- You do not currently have real music-beat detection. When the creator asks to "cut to the \
+sound/beat," approximate this honestly by cutting on natural pauses and sentence boundaries in \
+the speech transcript (a reasonable stand-in for musical rhythm), not by claiming to have \
+detected an actual beat.
+- Real voice dubbing/translation of the spoken audio itself isn't built yet -- only caption/text \
+translation is real. If the creator asks for dubbed/translated speech audio, do not attempt it; \
+just proceed with whatever other operations they also asked for.
+
+REPLY FORMAT -- CRITICAL: reply with ONLY valid JSON, nothing before or after it, no markdown code \
+fences, matching exactly this shape (every top-level key is optional except "notes"):
+
+{
+  "trim_and_reorder": {"segments": [{"clip_index": 0, "start": 0.0, "end": 4.2}], "transition": null} or null,
+  "change_speed": {"factor": 1.5} or null,
+  "color_grade": {"preset": "dark_cinematic"} or null,
+  "captions": {"enabled": true, "translate_to": null} or null,
+  "text_overlay": {"text": "Exact or AI-written words", "start": 0.0, "end": 3.0} or null,
+  "notes": "One sentence explaining what you're doing and why."
+}
+
+If trim_and_reorder is included, choose segments so the finished edit feels like a real short-form \
+piece (roughly 15-90 seconds total) unless the creator's instruction clearly asks for something \
+longer or shorter."""
+
+
+def transcribe_audio(audio_path):
+    """Transcribe spoken audio to text with per-segment timestamps, using
+    OpenAI's Whisper API (real speech-to-text, not a guess).
+
+    Returns (ok, segments, error_message). `segments` is a list of
+    {"start": float, "end": float, "text": str} dicts in the clip's own
+    original timeline. If the clip has no detectable speech, this returns
+    ok=True with an empty list -- that's a real, honest result, not a
+    failure. Any actual failure (no key, network issue, bad file) returns
+    ok=False with a clear error -- it never invents dialogue.
+    """
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        return False, None, "No OpenAI API key is configured (OPENAI_API_KEY is not set)."
+
+    try:
+        with open(audio_path, "rb") as f:
+            response = requests.post(
+                OPENAI_TRANSCRIPTION_URL,
+                headers={"Authorization": f"Bearer {api_key}"},
+                files={"file": (os.path.basename(audio_path), f, "audio/mpeg")},
+                data={"model": TRANSCRIPTION_MODEL, "response_format": "verbose_json"},
+                timeout=TRANSCRIPTION_TIMEOUT_SECONDS,
+            )
+    except requests.exceptions.Timeout:
+        return False, None, "The request to OpenAI timed out while transcribing audio. Try again in a moment."
+    except requests.exceptions.RequestException as exc:
+        return False, None, f"Couldn't reach OpenAI to transcribe audio: {exc}"
+    except OSError as exc:
+        return False, None, f"Couldn't read the extracted audio file: {exc}"
+
+    if response.status_code == 200:
+        try:
+            data = response.json()
+            raw_segments = data.get("segments", [])
+        except ValueError:
+            return False, None, "OpenAI returned a transcription response we couldn't read."
+        segments = [
+            {"start": float(s["start"]), "end": float(s["end"]), "text": s.get("text", "").strip()}
+            for s in raw_segments
+            if s.get("text", "").strip()
+        ]
+        return True, segments, None
+
+    detail = None
+    try:
+        detail = response.json().get("error", {}).get("message")
+    except ValueError:
+        pass
+    if response.status_code == 401:
+        return False, None, "OpenAI rejected the API key (401 Unauthorized) while transcribing audio."
+    if response.status_code == 429:
+        return False, None, detail or "OpenAI reported rate limiting or no remaining quota/credit (429) while transcribing audio."
+    return False, None, detail or f"OpenAI returned an error while transcribing audio (HTTP {response.status_code})."
+
+
+def _parse_json_reply(text):
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`")
+        if cleaned.lower().startswith("json"):
+            cleaned = cleaned[4:]
+        cleaned = cleaned.strip()
+    return json.loads(cleaned)
+
+
+def generate_edit_plan(instruction, clips_info):
+    """AI Video Editor: turn a free-text instruction + one or more raw
+    clips' real durations/transcripts into a concrete, machine-readable
+    OPERATIONS PLAN -- the model picks which real tools to run (cutting/
+    reordering with transitions, speed change, color grade, captions +
+    optional translation, text overlay), not a fixed one-size-fits-all
+    pipeline. "Just add captions" and "make a full cut-and-color-graded
+    Reel with a quote" both go through this same function; the difference
+    is which keys come back non-null.
+
+    clips_info: list of {"index": int, "filename": str, "duration": float,
+    "transcript": [{"start","end","text"}, ...]} -- the real, already-
+    measured facts about each uploaded clip; this function never guesses
+    at them.
+
+    Returns (ok, plan, error_message). `plan` always has every key below,
+    already validated/clamped against the real clip durations and the
+    real tool options given -- a caller can execute it directly without
+    re-checking bounds:
+      {"trim_and_reorder": {"segments": [...], "transition": {...} or None},
+       "change_speed": {"factor": float} or None,
+       "color_grade": {"preset": str} or None,
+       "captions": {"enabled": bool, "translate_to": str or None} or None,
+       "text_overlay": {"text","start","end"} or None,
+       "notes": str}
+    If trim_and_reorder was omitted/null in the model's reply, this fills
+    in one full-duration segment per uploaded clip, in upload order, so
+    there's always a valid cut/concat step for the pipeline to run even
+    when the creator only wanted a non-cutting operation like captions.
+    """
+    lines = []
+    for clip in clips_info:
+        lines.append(f"Clip {clip['index']} -- \"{clip['filename']}\" -- duration {clip['duration']:.2f}s")
+        if clip["transcript"]:
+            for seg in clip["transcript"]:
+                lines.append(f"  [{seg['start']:.2f}-{seg['end']:.2f}] {seg['text']}")
+        else:
+            lines.append("  (no speech detected in this clip)")
+    user_content = f"Creator's instruction: {instruction}\n\n" + "\n".join(lines)
+
+    ok, text, error = _chat_completion(VIDEO_EDITOR_SYSTEM_PROMPT, user_content)
+    if not ok:
+        return False, None, error
+
+    try:
+        raw_plan = _parse_json_reply(text)
+    except ValueError:
+        return False, None, "OpenAI's response wasn't valid JSON, so no real edit plan could be parsed."
+    if not isinstance(raw_plan, dict):
+        return False, None, "OpenAI's response wasn't a usable edit plan."
+
+    durations_by_index = {clip["index"]: clip["duration"] for clip in clips_info}
+
+    # --- trim_and_reorder (defaults to "use every clip, in full, in order") ---
+    raw_trim = raw_plan.get("trim_and_reorder")
+    valid_segments = []
+    if isinstance(raw_trim, dict):
+        for seg in raw_trim.get("segments", []) or []:
+            try:
+                clip_index = int(seg["clip_index"])
+                start = float(seg["start"])
+                end = float(seg["end"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if clip_index not in durations_by_index:
+                continue
+            clip_duration = durations_by_index[clip_index]
+            start = max(0.0, min(start, clip_duration))
+            end = max(0.0, min(end, clip_duration))
+            if end - start < 0.3:  # too short to be a real usable cut
+                continue
+            valid_segments.append({"clip_index": clip_index, "start": round(start, 2), "end": round(end, 2)})
+    if not valid_segments:
+        valid_segments = [
+            {"clip_index": clip["index"], "start": 0.0, "end": round(clip["duration"], 2)}
+            for clip in clips_info
+        ]
+
+    transition = None
+    if isinstance(raw_trim, dict) and isinstance(raw_trim.get("transition"), dict):
+        style = raw_trim["transition"].get("style")
+        if style in mp.TRANSITION_STYLES and style != "none" and len(valid_segments) > 1:
+            try:
+                duration = float(raw_trim["transition"].get("duration", 0.4))
+            except (TypeError, ValueError):
+                duration = 0.4
+            transition = {"style": style, "duration": max(0.1, min(2.0, duration))}
+
+    trim_and_reorder = {"segments": valid_segments, "transition": transition}
+
+    # --- change_speed ---
+    change_speed = None
+    raw_speed = raw_plan.get("change_speed")
+    if isinstance(raw_speed, dict):
+        try:
+            factor = float(raw_speed.get("factor", 1.0))
+        except (TypeError, ValueError):
+            factor = None
+        if factor and abs(factor - 1.0) > 0.01:
+            change_speed = {"factor": max(mp.MIN_SPEED_FACTOR, min(mp.MAX_SPEED_FACTOR, factor))}
+
+    # --- color_grade ---
+    color_grade = None
+    raw_color = raw_plan.get("color_grade")
+    if isinstance(raw_color, dict) and raw_color.get("preset") in mp.COLOR_PRESETS:
+        color_grade = {"preset": raw_color["preset"]}
+
+    # --- captions ---
+    captions = None
+    raw_captions = raw_plan.get("captions")
+    if isinstance(raw_captions, dict) and raw_captions.get("enabled"):
+        translate_to = raw_captions.get("translate_to")
+        translate_to = str(translate_to).strip() if translate_to else None
+        captions = {"enabled": True, "translate_to": translate_to}
+
+    # --- text_overlay ---
+    text_overlay = None
+    raw_overlay = raw_plan.get("text_overlay")
+    if isinstance(raw_overlay, dict) and raw_overlay.get("text"):
+        try:
+            o_start = float(raw_overlay.get("start", 0.0))
+            o_end = float(raw_overlay.get("end", o_start + 3.0))
+        except (TypeError, ValueError):
+            o_start, o_end = 0.0, 3.0
+        if o_end <= o_start:
+            o_end = o_start + 3.0
+        text_overlay = {
+            "text": str(raw_overlay["text"]).strip(),
+            "start": round(max(0.0, o_start), 2),
+            "end": round(o_end, 2),
+        }
+
+    plan = {
+        "trim_and_reorder": trim_and_reorder,
+        "change_speed": change_speed,
+        "color_grade": color_grade,
+        "captions": captions,
+        "text_overlay": text_overlay,
+        "notes": raw_plan.get("notes", "").strip() if isinstance(raw_plan.get("notes"), str) else "",
+    }
+    return True, plan, None
+
+
+def translate_caption_segments(entries, target_language):
+    """Translate already-transcribed caption text into another language,
+    keeping every entry's real timing untouched -- only the `text` field
+    changes. Returns (ok, translated_entries, error_message). If the
+    model's reply doesn't line up 1:1 with what was sent, this fails
+    honestly rather than risk mismatched/garbled captions.
+    """
+    if not entries:
+        return True, entries, None
+    numbered = "\n".join(f"{i}: {e['text']}" for i, e in enumerate(entries))
+    system_prompt = (
+        f"Translate each numbered line into {target_language}. Reply with ONLY a JSON array of "
+        f"strings, in the same order, same count ({len(entries)} items), each the translation of "
+        "the matching line -- no numbering, no commentary, no markdown fences."
+    )
+    ok, text, error = _chat_completion(system_prompt, numbered)
+    if not ok:
+        return False, None, error
+    try:
+        translated = _parse_json_reply(text)
+    except ValueError:
+        return False, None, "OpenAI's translation reply wasn't valid JSON."
+    if not isinstance(translated, list) or len(translated) != len(entries):
+        return False, None, "OpenAI's translation reply didn't match the number of captions sent."
+    result = [
+        {"start": e["start"], "end": e["end"], "text": str(t).strip()}
+        for e, t in zip(entries, translated)
+    ]
+    return True, result, None
 
 
 def _brand_context_block(brand_profile):
