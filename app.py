@@ -13,8 +13,10 @@ def create_app():
     app.secret_key = config.SECRET_KEY
     # Video uploads (Video Studio) are real files, not text -- cap the
     # size so one huge upload can't exhaust this server's disk or memory.
-    # 250MB comfortably covers a short raw clip for a demo.
-    app.config["MAX_CONTENT_LENGTH"] = 250 * 1024 * 1024
+    # The AI Video Editor accepts several raw clips in one request, so this
+    # is a combined-request limit, not a per-clip one -- 400MB comfortably
+    # covers a handful of short raw clips for a demo.
+    app.config["MAX_CONTENT_LENGTH"] = 400 * 1024 * 1024
 
     db.init_db()  # idempotent -- CREATE TABLE IF NOT EXISTS
     db.seed_demo_account()
@@ -26,6 +28,7 @@ def create_app():
     from blueprints.projects import bp as projects_bp
     from blueprints.media import bp as media_bp
     from blueprints.media_tools import bp as media_tools_bp
+    from blueprints.audio_voice import bp as audio_voice_bp
     from blueprints.brand import bp as brand_bp
     from blueprints.campaigns import bp as campaigns_bp
     from blueprints.billing import bp as billing_bp
@@ -39,6 +42,7 @@ def create_app():
     app.register_blueprint(projects_bp)
     app.register_blueprint(media_bp)
     app.register_blueprint(media_tools_bp)
+    app.register_blueprint(audio_voice_bp)
     app.register_blueprint(brand_bp)
     app.register_blueprint(campaigns_bp)
     app.register_blueprint(billing_bp)
@@ -66,7 +70,7 @@ def create_app():
 
     @app.errorhandler(413)
     def too_large(e):
-        return "413 -- that file is too large. The limit for a single upload is 250MB.", 413
+        return "413 -- that upload is too large. The limit per request is 400MB (combined, if uploading several clips at once).", 413
 
     return app
 
