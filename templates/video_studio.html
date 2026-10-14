@@ -1,1 +1,112 @@
+{% extends "base_app.html" %}
+{% import "_icons.html" as ic %}
+{% block content %}
+<div class="page-header">
+  <div class="flex items-center gap-3">
+    <div class="agent-icon" style="width:46px;height:46px;">{{ ic.icon('video', 22) }}</div>
+    <div>
+      <div class="page-title">Video Studio</div>
+      <div class="page-subtitle">Real editing and color grading, powered by FFmpeg running on this server -- upload a clip, get a real processed file back.</div>
+    </div>
+  </div>
+  <a href="{{ url_for('agents.directory') }}" class="btn btn-ghost">All agents</a>
+</div>
 
+{% if not ffmpeg_ready %}
+<div class="alert alert-warning">
+  <strong>Setup required to go live:</strong> FFmpeg isn't installed on this server, so no video can be processed for real yet. Nothing below will fabricate a result.
+</div>
+{% endif %}
+
+{% if last_result %}
+<div class="alert alert-success">
+  <strong>{{ last_result.label }}</strong><br>
+  <span class="text-sm">{{ last_result.detail }}</span><br>
+  <a href="{{ url_for('media_tools.download', filename=last_result.filename) }}" class="btn btn-primary mt-2" style="display:inline-block;">{{ ic.icon('upload', 16) }} Download result</a>
+</div>
+{% endif %}
+
+<div class="grid grid-2" style="grid-template-columns: 1fr 1fr;">
+  <div class="card">
+    <h3 style="font-size:15px; margin-bottom:4px;">AI Video Editor -- edit for a platform</h3>
+    <div class="text-tertiary text-sm mb-4">Trims to a time range (optional) and resizes/crops for real, with no letterboxing, to the exact dimensions each platform expects.</div>
+    <form method="post" action="{{ url_for('media_tools.edit_video') }}" enctype="multipart/form-data">
+      <div class="field">
+        <label>Video file</label>
+        <input type="file" name="video_file" accept=".mp4,.mov,.m4v,.webm,.avi,.mkv" required>
+      </div>
+      <div class="field">
+        <label>Platform</label>
+        <select name="platform">
+          {% for slug, label in platform_labels.items() %}
+          <option value="{{ slug }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="flex gap-3">
+        <div class="field" style="flex:1;">
+          <label>Start (seconds, optional)</label>
+          <input type="number" step="0.1" min="0" name="start_seconds" placeholder="0">
+        </div>
+        <div class="field" style="flex:1;">
+          <label>End (seconds, optional)</label>
+          <input type="number" step="0.1" min="0" name="end_seconds" placeholder="e.g. 30">
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block" {{ 'disabled' if not ffmpeg_ready }}>{{ 'Edit video' if ffmpeg_ready else 'FFmpeg not available' }}</button>
+    </form>
+
+    {% if recent_video_tasks %}
+    <div class="divider"></div>
+    <div class="text-sm text-secondary" style="font-weight:600; margin-bottom:8px;">Recent edits</div>
+    <div class="flex-col gap-2">
+      {% for t in recent_video_tasks %}
+      <div class="text-sm">
+        <span class="status-pill">
+          <span class="dot" style="background: {{ {'completed':'var(--success-500)','failed':'var(--danger-500)'}.get(t['status'], 'var(--text-tertiary)') }};"></span>
+          {{ t['status'] }}
+        </span>
+        <span class="text-tertiary">{{ t['request_summary'] }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3 style="font-size:15px; margin-bottom:4px;">AI Color Grading -- apply a look</h3>
+    <div class="text-tertiary text-sm mb-4">Applies a real color adjustment to the whole clip. An automatic, good-enough grade -- not a frame-by-frame, shot-matched correction a human colorist would do.</div>
+    <form method="post" action="{{ url_for('media_tools.grade_video') }}" enctype="multipart/form-data">
+      <div class="field">
+        <label>Video file</label>
+        <input type="file" name="video_file" accept=".mp4,.mov,.m4v,.webm,.avi,.mkv" required>
+      </div>
+      <div class="field">
+        <label>Look</label>
+        <select name="preset">
+          {% for slug, label in color_preset_labels.items() %}
+          <option value="{{ slug }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block" {{ 'disabled' if not ffmpeg_ready }}>{{ 'Apply grade' if ffmpeg_ready else 'FFmpeg not available' }}</button>
+    </form>
+
+    {% if recent_color_tasks %}
+    <div class="divider"></div>
+    <div class="text-sm text-secondary" style="font-weight:600; margin-bottom:8px;">Recent grades</div>
+    <div class="flex-col gap-2">
+      {% for t in recent_color_tasks %}
+      <div class="text-sm">
+        <span class="status-pill">
+          <span class="dot" style="background: {{ {'completed':'var(--success-500)','failed':'var(--danger-500)'}.get(t['status'], 'var(--text-tertiary)') }};"></span>
+          {{ t['status'] }}
+        </span>
+        <span class="text-tertiary">{{ t['request_summary'] }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
