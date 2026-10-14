@@ -64,12 +64,12 @@ AGENTS = {
         "icon": "video",
         "plans": ["creator", "full_studio"],
         "status": "orchestration_ready",
-        "requires_integration": "A video processing engine (e.g. FFmpeg-based render worker or a managed video API) must be connected before exports are real.",
+        "requires_integration": "Works now -- real trimming and platform resizing run on FFmpeg, installed directly on this server (no external key or signup needed). Highlight-moment detection and multi-clip assembly aren't built yet.",
         "capabilities": [
-            "Upload and analyze raw footage",
-            "Surface candidate highlight moments",
-            "Draft Reels / TikTok / Shorts cut lists",
-            "Resize for multiple platforms",
+            "Upload a real video file and get a real file back",
+            "Trim to an exact time range",
+            "Real resize/crop (no letterboxing) for Reels / TikTok / Shorts, Square, or Landscape",
+            "Runs on FFmpeg on this server -- no external video API needed",
             "Hand off to Color Grading & Audio agents",
         ],
     },
@@ -80,7 +80,7 @@ AGENTS = {
         "icon": "palette",
         "plans": ["creator", "full_studio"],
         "status": "orchestration_ready",
-        "requires_integration": "Real pixel-level grading needs a video processing engine connected (same dependency as the Video Editor).",
+        "requires_integration": "Works now -- real color adjustments run on FFmpeg, installed directly on this server (no external key or signup needed). This is an automatic, good-enough grade, not a frame-by-frame, shot-matched correction a human colorist would do.",
         "capabilities": [
             "Exposure, contrast, white balance correction",
             "Cinematic style presets (dark, natural, vibrant, documentary, luxury)",
@@ -289,8 +289,8 @@ INTEGRATIONS = {
         "env_vars": ["OPENAI_API_KEY"],
     },
     "video_processing": {
-        "label": "Video processing engine (Video Editor / Color Grading)",
-        "env_vars": ["VIDEO_PROCESSING_API_KEY"],
+        "label": "FFmpeg on this server (Video Editor / Color Grading) -- checked by looking for the ffmpeg program, not an API key",
+        "env_vars": [],
     },
     "speech_audio": {
         "label": "Speech / audio processing API (Audio & Voice Agent)",
@@ -305,6 +305,15 @@ INTEGRATIONS = {
 
 
 def is_configured(integration_key):
+    # video_processing is the one exception to the "env var present"
+    # check below: there's no external account or key for it at all --
+    # it's real, local FFmpeg running directly on this server, so the
+    # honest check is "is the ffmpeg program actually here", not
+    # "is some API key set" (there never was one to set).
+    if integration_key == "video_processing":
+        import shutil
+        return shutil.which("ffmpeg") is not None
+
     spec = INTEGRATIONS.get(integration_key)
     if not spec:
         return False
