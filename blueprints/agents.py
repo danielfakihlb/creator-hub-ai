@@ -21,16 +21,33 @@ DEDICATED_PAGE_REDIRECTS = {
     # route to the real upload/download page in blueprints/media_tools.py.
     "video_editor": "media_tools.studio",
     "color_grading": "media_tools.studio",
+    # Audio & Voice takes an actual audio/video file and hands back real
+    # processed file(s) too -- same reasoning, routed to its own real
+    # upload/download page in blueprints/audio_voice.py.
+    "audio_voice": "audio_voice.studio",
 }
 
 # Maps an agent to the integration key(s) (config.INTEGRATIONS) its real
 # processing depends on, so the workspace can state honestly what's wired
 # up vs. still needs a connected service.
 AGENT_INTEGRATIONS = {
-    "video_editor": ["video_processing"],
+    # The AI Video Editor's dedicated page (media_tools.studio) checks
+    # ffmpeg/llm_provider readiness itself and shows per-tool messaging --
+    # this entry is kept accurate for documentation/consistency even
+    # though DEDICATED_PAGE_REDIRECTS means the generic workspace below
+    # never actually renders for this agent.
+    "video_editor": ["video_processing", "llm_provider"],
     "color_grading": ["video_processing"],
     "scriptwriter": ["llm_provider"],
-    "audio_voice": ["speech_audio"],
+    # Audio & Voice's dedicated page (audio_voice.studio) checks
+    # ffmpeg/llm_provider readiness itself, same pattern as the Video
+    # Editor -- kept accurate here for documentation/consistency even
+    # though DEDICATED_PAGE_REDIRECTS means the generic workspace below
+    # never actually renders for this agent. Noise reduction runs on
+    # FFmpeg directly (no external key); transcription, translation, and
+    # voiceover generation all run on the already-connected OpenAI key --
+    # no separate speech API account is needed.
+    "audio_voice": ["video_processing", "llm_provider"],
     "trend_researcher": ["llm_provider"],
     # Caption/hashtag/calendar DRAFTING only needs the OpenAI key -- actual
     # posting to these platforms is a separate, much bigger project (each
