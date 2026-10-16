@@ -25,6 +25,7 @@
     <div class="card">
       <h3 style="font-size:15px; margin-bottom:14px;">New request</h3>
       <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="field">
           <label>What do you want {{ agent.name }} to do?</label>
           <textarea name="request_summary" rows="4" placeholder="e.g. Turn this training footage into a 30-second cinematic Instagram Reel with fast cuts and motivational music."></textarea>
