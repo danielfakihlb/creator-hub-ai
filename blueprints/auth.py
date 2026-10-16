@@ -3,11 +3,14 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 import config
 import database as db
+from rate_limit import rate_limit
 
 bp = Blueprint("auth", __name__)
 
 
 @bp.route("/signup", methods=["GET", "POST"])
+@rate_limit(max_attempts=8, window_seconds=3600,
+            message="Too many signup attempts from this connection. Please wait a bit and try again.")
 def signup():
     if request.method == "POST":
         full_name = request.form.get("full_name", "").strip()
@@ -47,6 +50,8 @@ def signup():
 
 
 @bp.route("/login", methods=["GET", "POST"])
+@rate_limit(max_attempts=8, window_seconds=60,
+            message="Too many login attempts from this connection. Please wait a minute and try again.")
 def login():
     if request.method == "POST":
         email = request.form.get("email", "").strip().lower()
