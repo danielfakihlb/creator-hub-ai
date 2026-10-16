@@ -3,6 +3,7 @@
 <div class="page-header"><div class="page-title">New campaign</div></div>
 <div class="card" style="max-width:520px;">
   <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="field">
       <label>Campaign name</label>
       <input type="text" name="name" required placeholder="e.g. 14-Day Fight Camp Launch">
