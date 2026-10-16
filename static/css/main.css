@@ -133,6 +133,30 @@ p { margin: 0; }
 .btn-block { width: 100%; }
 .btn[disabled] { opacity: .5; cursor: not-allowed; }
 
+/* "This agent is running" state -- applied automatically to any form's
+   submit button the instant it's clicked (see static/js/app.js). Kept at
+   higher opacity than the generic [disabled] style above so the spinner
+   and "Working..." label stay clearly readable instead of fading out. */
+.btn.is-loading[disabled] { opacity: .85; cursor: wait; }
+.btn-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border: 2px solid rgba(255,255,255,0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: chai-btn-spin .7s linear infinite;
+}
+.btn-secondary .btn-spinner,
+.btn-ghost .btn-spinner {
+  border-color: rgba(127,127,127,0.35);
+  border-top-color: var(--text-primary);
+}
+@keyframes chai-btn-spin {
+  to { transform: rotate(360deg); }
+}
+
 /* ---------- Cards ---------- */
 .card {
   background: var(--bg-surface);
