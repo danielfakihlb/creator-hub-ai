@@ -25,6 +25,7 @@
     {% endif %}
     {% if subscription['status'] == 'active' %}
     <form method="post" action="{{ url_for('billing.cancel') }}" onsubmit="return confirm('Cancel your subscription?');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button type="submit" class="btn btn-ghost">Cancel subscription</button>
     </form>
     {% endif %}
