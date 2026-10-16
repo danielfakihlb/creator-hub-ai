@@ -15,6 +15,7 @@
       <strong>Payment setup required.</strong> No payment provider is connected yet, so real billing can't run. Connect Stripe (or another provider) under Account Settings &rarr; Integrations to accept real payments.
     </div>
     <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="alert alert-danger" style="margin-bottom:14px;">
         <strong>Test mode only &mdash; no real charge.</strong> This exists so you can try the full upgrade/downgrade flow while building. Remove this before accepting real customers.
       </div>
