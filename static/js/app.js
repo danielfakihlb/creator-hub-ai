@@ -40,5 +40,27 @@
         if (answer) answer.style.display = answer.style.display === "block" ? "none" : "block";
       });
     });
+
+    // Every agent's "it's running" feedback: the instant ANY form in the
+    // app is submitted -- running an agent, uploading a clip, creating a
+    // campaign, anything -- disable its submit button and swap in a
+    // spinner + "Working..." label. This is site-wide (one place, every
+    // form, every page) rather than something added per-agent, so it
+    // never gets missed on a future agent either. It's honest, simple
+    // feedback that something is happening -- never a fake progress
+    // percentage. The two agents with a real multi-step pipeline (AI
+    // Video Editor, AI Audio & Voice Agent) redirect to their own live,
+    // measured-progress page right after this; for the rest (a single
+    // request/response call), this spinner is the whole "please wait."
+    document.querySelectorAll("form").forEach(function (form) {
+      form.addEventListener("submit", function (evt) {
+        if (evt.defaultPrevented) return; // e.g. a confirm() dialog on this form was cancelled
+        var btn = form.querySelector('button[type="submit"]');
+        if (!btn || btn.disabled) return;
+        btn.disabled = true;
+        btn.classList.add("is-loading");
+        btn.innerHTML = '<span class="btn-spinner"></span> Working...';
+      });
+    });
   });
 })();
