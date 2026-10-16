@@ -361,15 +361,44 @@ If nothing in the instruction maps to any of the four tools above, return all fo
 "notes" to say so honestly -- never invent an operation just to have something to do."""
 
 
+def _merge_words_into_segments(segments, words):
+    """OpenAI returns "segments" and "words" as two separate flat arrays
+    (not nested) when both granularities are requested -- this associates
+    each word with whichever segment's time range it overlaps most, so
+    every segment ends up with its own "words" list. Adds the "words" key
+    in place and also returns `segments` for convenience. A word that
+    doesn't clearly overlap any segment (rare, right at a boundary) is
+    just dropped rather than guessed into the wrong place -- the caller
+    treats a segment with no words as "no word-level timing" and falls
+    back to plain, non-animated captions for that stretch."""
+    for seg in segments:
+        seg["words"] = []
+    for w in words:
+        best_seg, best_overlap = None, 0.0
+        for seg in segments:
+            overlap = min(w["end"], seg["end"]) - max(w["start"], seg["start"])
+            if overlap > best_overlap:
+                best_overlap, best_seg = overlap, seg
+        if best_seg is not None:
+            best_seg["words"].append(w)
+    return segments
+
+
 def transcribe_audio(audio_path):
-    """Transcribe spoken audio to text with per-segment timestamps, using
-    OpenAI's Whisper API (real speech-to-text, not a guess).
+    """Transcribe spoken audio to text with per-segment AND per-word
+    timestamps, using OpenAI's Whisper API (real speech-to-text, not a
+    guess).
 
     Returns (ok, segments, error_message). `segments` is a list of
-    {"start": float, "end": float, "text": str} dicts in the clip's own
-    original timeline. If the clip has no detectable speech, this returns
-    ok=True with an empty list -- that's a real, honest result, not a
-    failure. Any actual failure (no key, network issue, bad file) returns
+    {"start": float, "end": float, "text": str, "words": [...]} dicts in
+    the clip's own original timeline, where each word is
+    {"start": float, "end": float, "text": str}. The per-word timing is
+    what powers the animated, karaoke-style caption highlight -- a
+    segment with no usable word timing just gets an empty "words" list,
+    and callers fall back to the plain caption style for it rather than
+    guessing. If the clip has no detectable speech, this returns ok=True
+    with an empty list -- that's a real, honest result, not a failure.
+    Any actual failure (no key, network issue, bad file) returns
     ok=False with a clear error -- it never invents dialogue.
     """
     api_key = os.environ.get("OPENAI_API_KEY")
@@ -382,7 +411,16 @@ def transcribe_audio(audio_path):
                 OPENAI_TRANSCRIPTION_URL,
                 headers={"Authorization": f"Bearer {api_key}"},
                 files={"file": (os.path.basename(audio_path), f, "audio/mpeg")},
-                data={"model": TRANSCRIPTION_MODEL, "response_format": "verbose_json"},
+                # A plain dict can't hold the "timestamp_granularities[]"
+                # field twice, and OpenAI wants it sent once per value we
+                # ask for -- a list of (key, value) tuples lets requests
+                # encode the repeated field correctly.
+                data=[
+                    ("model", TRANSCRIPTION_MODEL),
+                    ("response_format", "verbose_json"),
+                    ("timestamp_granularities[]", "word"),
+                    ("timestamp_granularities[]", "segment"),
+                ],
                 timeout=TRANSCRIPTION_TIMEOUT_SECONDS,
             )
     except requests.exceptions.Timeout:
@@ -396,6 +434,7 @@ def transcribe_audio(audio_path):
         try:
             data = response.json()
             raw_segments = data.get("segments", [])
+            raw_words = data.get("words", [])
         except ValueError:
             return False, None, "OpenAI returned a transcription response we couldn't read."
         segments = [
@@ -403,6 +442,12 @@ def transcribe_audio(audio_path):
             for s in raw_segments
             if s.get("text", "").strip()
         ]
+        words = [
+            {"start": float(w["start"]), "end": float(w["end"]), "text": w.get("word", "").strip()}
+            for w in raw_words
+            if w.get("word", "").strip()
+        ]
+        _merge_words_into_segments(segments, words)
         return True, segments, None
 
     detail = None
