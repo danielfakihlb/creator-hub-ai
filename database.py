@@ -1,31 +1,70 @@
-"""SQLite data access layer for Creator Hub AI.
+"""Postgres data access layer for Creator Hub AI.
 
-Deliberately raw sqlite3 + hand-written SQL rather than an ORM: it's
-dependency-free (works in any Python 3 environment with no installs) and
-every query is explicit, which matters for a subscription-gated app where
-every row returned has to respect a permission check upstream.
+This used to be a plain SQLite file on local disk. The problem with that
+wasn't performance -- it's that Render's web service disk is NOT
+persistent: every restart (a deploy, a crash, or -- on the Free plan --
+just 15 minutes of no traffic) wiped it completely, taking every user,
+project, and task with it. Moving to a real hosted Postgres database
+fixes that: the database is now its own separate, persistent resource,
+independent of the web service's disk.
+
+Still deliberately raw SQL rather than an ORM -- it's dependency-light
+(psycopg2 is the one new package this needed) and every query stays
+explicit, which matters for a subscription-gated app where every row
+returned has to respect a permission check upstream.
+
+Every function below keeps its exact original name and arguments from
+the SQLite version. Nothing that calls into this file -- any blueprint,
+any route -- needed to change for this migration; only this file,
+schema.sql, and the DATABASE_URL setting in config.py did.
 """
 
-import sqlite3
 import os
 from contextlib import contextmanager
+from datetime import datetime, timezone
+
+import psycopg2
+import psycopg2.extras
 
 import config
 
 
+class ReferencedRowError(Exception):
+    """Raised when a delete is blocked because another table still
+    references that row (e.g. a project still points at the brand profile
+    you're trying to remove). Postgres enforces this with a real foreign-key
+    constraint -- this turns that low-level database error into something a
+    blueprint can catch and show a clear message for, instead of it
+    surfacing as a raw 500."""
+
+
+def _now():
+    """Current UTC time as a plain 'YYYY-MM-DD HH:MM:SS' string -- the same
+    format this app has always stored timestamps in. Previously that came
+    from SQLite's datetime('now'); here it's computed in Python and passed
+    in as a normal parameter instead of relying on a database-specific SQL
+    function, which also means this one function is the only new piece of
+    timestamp logic that actually needed testing, and it's plain Python."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
 def init_db():
-    os.makedirs(os.path.dirname(config.DATABASE_PATH), exist_ok=True)
+    if not config.DATABASE_URL:
+        raise RuntimeError(
+            "DATABASE_URL is not set. This app now needs a real Postgres "
+            "database to run -- set the DATABASE_URL environment variable "
+            "to the connection string for your Render Postgres instance."
+        )
     with get_conn() as conn:
-        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "schema.sql")) as f:
-            conn.executescript(f.read())
+        with conn.cursor() as cur:
+            with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "schema.sql")) as f:
+                cur.execute(f.read())
         conn.commit()
 
 
 @contextmanager
 def get_conn():
-    conn = sqlite3.connect(config.DATABASE_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
+    conn = psycopg2.connect(config.DATABASE_URL)
     try:
         yield conn
     finally:
@@ -34,16 +73,22 @@ def get_conn():
 
 def query(sql, params=(), one=False):
     with get_conn() as conn:
-        cur = conn.execute(sql, params)
-        rows = cur.fetchall()
-        return (rows[0] if rows else None) if one else rows
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql, params)
+            rows = cur.fetchall()
+            return (rows[0] if rows else None) if one else rows
 
 
 def execute(sql, params=()):
     with get_conn() as conn:
-        cur = conn.execute(sql, params)
-        conn.commit()
-        return cur.lastrowid
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            result = None
+            if cur.description:  # an INSERT ... RETURNING id, etc.
+                row = cur.fetchone()
+                result = row[0] if row else None
+            conn.commit()
+            return result
 
 
 # ---------------------------------------------------------------------
@@ -51,23 +96,23 @@ def execute(sql, params=()):
 # ---------------------------------------------------------------------
 
 def get_user_by_email(email):
-    return query("SELECT * FROM users WHERE email = ?", (email,), one=True)
+    return query("SELECT * FROM users WHERE email = %s", (email,), one=True)
 
 
 def get_user_by_id(user_id):
-    return query("SELECT * FROM users WHERE id = ?", (user_id,), one=True)
+    return query("SELECT * FROM users WHERE id = %s", (user_id,), one=True)
 
 
 def create_user(email, password_hash, full_name, is_admin=False):
     return execute(
-        "INSERT INTO users (email, password_hash, full_name, is_admin) VALUES (?, ?, ?, ?)",
+        "INSERT INTO users (email, password_hash, full_name, is_admin) VALUES (%s, %s, %s, %s) RETURNING id",
         (email, password_hash, full_name, 1 if is_admin else 0),
     )
 
 
 def get_active_subscription(user_id):
     return query(
-        "SELECT * FROM subscriptions WHERE user_id = ? AND status = 'active' "
+        "SELECT * FROM subscriptions WHERE user_id = %s AND status = 'active' "
         "ORDER BY created_at DESC LIMIT 1",
         (user_id,),
         one=True,
@@ -77,25 +122,27 @@ def get_active_subscription(user_id):
 def set_subscription(user_id, plan_slug, status="active", payment_provider_ref=None):
     """Insert a new subscription row (history-preserving) and supersede the old one."""
     with get_conn() as conn:
-        conn.execute(
-            "UPDATE subscriptions SET status = 'superseded' WHERE user_id = ? AND status = 'active'",
-            (user_id,),
-        )
-        conn.execute(
-            "INSERT INTO subscriptions (user_id, plan_slug, status, payment_provider_ref) "
-            "VALUES (?, ?, ?, ?)",
-            (user_id, plan_slug, status, payment_provider_ref),
-        )
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE subscriptions SET status = 'superseded' WHERE user_id = %s AND status = 'active'",
+                (user_id,),
+            )
+            cur.execute(
+                "INSERT INTO subscriptions (user_id, plan_slug, status, payment_provider_ref) "
+                "VALUES (%s, %s, %s, %s)",
+                (user_id, plan_slug, status, payment_provider_ref),
+            )
         conn.commit()
 
 
 def cancel_subscription(user_id):
     with get_conn() as conn:
-        conn.execute(
-            "UPDATE subscriptions SET status = 'canceled', updated_at = datetime('now') "
-            "WHERE user_id = ? AND status = 'active'",
-            (user_id,),
-        )
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE subscriptions SET status = 'canceled', updated_at = %s "
+                "WHERE user_id = %s AND status = 'active'",
+                (_now(), user_id),
+            )
         conn.commit()
 
 
@@ -104,18 +151,23 @@ def cancel_subscription(user_id):
 # ---------------------------------------------------------------------
 
 def list_brand_profiles(user_id):
-    return query("SELECT * FROM brand_profiles WHERE user_id = ? ORDER BY created_at", (user_id,))
+    return query("SELECT * FROM brand_profiles WHERE user_id = %s ORDER BY created_at", (user_id,))
 
 
 def create_brand_profile(user_id, **fields):
     cols = ["user_id"] + list(fields.keys())
-    placeholders = ", ".join(["?"] * len(cols))
+    placeholders = ", ".join(["%s"] * len(cols))
     values = [user_id] + list(fields.values())
-    return execute(f"INSERT INTO brand_profiles ({', '.join(cols)}) VALUES ({placeholders})", values)
+    return execute(
+        f"INSERT INTO brand_profiles ({', '.join(cols)}) VALUES ({placeholders}) RETURNING id", values
+    )
 
 
 def delete_brand_profile(user_id, profile_id):
-    execute("DELETE FROM brand_profiles WHERE id = ? AND user_id = ?", (profile_id, user_id))
+    try:
+        execute("DELETE FROM brand_profiles WHERE id = %s AND user_id = %s", (profile_id, user_id))
+    except psycopg2.IntegrityError:
+        raise ReferencedRowError("This brand profile is still assigned to a project.")
 
 
 # ---------------------------------------------------------------------
@@ -124,19 +176,19 @@ def delete_brand_profile(user_id, profile_id):
 
 def list_projects(user_id):
     return query(
-        "SELECT * FROM projects WHERE user_id = ? ORDER BY updated_at DESC", (user_id,)
+        "SELECT * FROM projects WHERE user_id = %s ORDER BY updated_at DESC", (user_id,)
     )
 
 
 def get_project(user_id, project_id):
     return query(
-        "SELECT * FROM projects WHERE id = ? AND user_id = ?", (project_id, user_id), one=True
+        "SELECT * FROM projects WHERE id = %s AND user_id = %s", (project_id, user_id), one=True
     )
 
 
 def create_project(user_id, name, description="", brand_profile_id=None):
     return execute(
-        "INSERT INTO projects (user_id, name, description, brand_profile_id) VALUES (?, ?, ?, ?)",
+        "INSERT INTO projects (user_id, name, description, brand_profile_id) VALUES (%s, %s, %s, %s) RETURNING id",
         (user_id, name, description, brand_profile_id),
     )
 
@@ -146,31 +198,31 @@ def create_project(user_id, name, description="", brand_profile_id=None):
 # ---------------------------------------------------------------------
 
 def list_media(user_id, search=None, folder=None, media_type=None):
-    sql = "SELECT * FROM media_assets WHERE user_id = ?"
+    sql = "SELECT * FROM media_assets WHERE user_id = %s"
     params = [user_id]
     if search:
-        sql += " AND (filename LIKE ? OR description LIKE ? OR tags LIKE ?)"
+        sql += " AND (filename LIKE %s OR description LIKE %s OR tags LIKE %s)"
         like = f"%{search}%"
         params += [like, like, like]
     if folder:
-        sql += " AND folder = ?"
+        sql += " AND folder = %s"
         params.append(folder)
     if media_type:
-        sql += " AND media_type = ?"
+        sql += " AND media_type = %s"
         params.append(media_type)
     sql += " ORDER BY created_at DESC"
     return query(sql, params)
 
 
 def list_folders(user_id):
-    rows = query("SELECT DISTINCT folder FROM media_assets WHERE user_id = ? ORDER BY folder", (user_id,))
+    rows = query("SELECT DISTINCT folder FROM media_assets WHERE user_id = %s ORDER BY folder", (user_id,))
     return [r["folder"] for r in rows]
 
 
 def create_media_asset(user_id, filename, media_type, folder="Uploads", description="", tags="", project_id=None):
     return execute(
         "INSERT INTO media_assets (user_id, project_id, folder, filename, media_type, description, tags) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
         (user_id, project_id, folder, filename, media_type, description, tags),
     )
 
@@ -180,41 +232,41 @@ def create_media_asset(user_id, filename, media_type, folder="Uploads", descript
 # ---------------------------------------------------------------------
 
 def list_campaigns(user_id):
-    return query("SELECT * FROM campaigns WHERE user_id = ? ORDER BY created_at DESC", (user_id,))
+    return query("SELECT * FROM campaigns WHERE user_id = %s ORDER BY created_at DESC", (user_id,))
 
 
 def get_campaign(user_id, campaign_id):
     return query(
-        "SELECT * FROM campaigns WHERE id = ? AND user_id = ?", (campaign_id, user_id), one=True
+        "SELECT * FROM campaigns WHERE id = %s AND user_id = %s", (campaign_id, user_id), one=True
     )
 
 
 def create_campaign(user_id, name, objective="", project_id=None):
     return execute(
-        "INSERT INTO campaigns (user_id, project_id, name, objective) VALUES (?, ?, ?, ?)",
+        "INSERT INTO campaigns (user_id, project_id, name, objective) VALUES (%s, %s, %s, %s) RETURNING id",
         (user_id, project_id, name, objective),
     )
 
 
 def list_campaign_tasks(campaign_id):
     return query(
-        "SELECT * FROM campaign_tasks WHERE campaign_id = ? ORDER BY id", (campaign_id,)
+        "SELECT * FROM campaign_tasks WHERE campaign_id = %s ORDER BY id", (campaign_id,)
     )
 
 
 def create_campaign_task(campaign_id, agent_slug, title, depends_on_task_id=None):
     return execute(
         "INSERT INTO campaign_tasks (campaign_id, agent_slug, title, depends_on_task_id) "
-        "VALUES (?, ?, ?, ?)",
+        "VALUES (%s, %s, %s, %s) RETURNING id",
         (campaign_id, agent_slug, title, depends_on_task_id),
     )
 
 
 def update_campaign_task_status(task_id, status, output_summary=None):
     execute(
-        "UPDATE campaign_tasks SET status = ?, output_summary = COALESCE(?, output_summary), "
-        "updated_at = datetime('now') WHERE id = ?",
-        (status, output_summary, task_id),
+        "UPDATE campaign_tasks SET status = %s, output_summary = COALESCE(%s, output_summary), "
+        "updated_at = %s WHERE id = %s",
+        (status, output_summary, _now(), task_id),
     )
 
 
@@ -226,19 +278,20 @@ def log_agent_task(user_id, agent_slug, request_summary, status="needs_integrati
                     result_summary=None, error_message=None, project_id=None, campaign_task_id=None):
     return execute(
         "INSERT INTO agent_tasks (user_id, project_id, campaign_task_id, agent_slug, "
-        "request_summary, status, result_summary, error_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "request_summary, status, result_summary, error_message) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) "
+        "RETURNING id",
         (user_id, project_id, campaign_task_id, agent_slug, request_summary, status,
          result_summary, error_message),
     )
 
 
 def list_agent_tasks(user_id, agent_slug=None, limit=20):
-    sql = "SELECT * FROM agent_tasks WHERE user_id = ?"
+    sql = "SELECT * FROM agent_tasks WHERE user_id = %s"
     params = [user_id]
     if agent_slug:
-        sql += " AND agent_slug = ?"
+        sql += " AND agent_slug = %s"
         params.append(agent_slug)
-    sql += " ORDER BY created_at DESC LIMIT ?"
+    sql += " ORDER BY created_at DESC LIMIT %s"
     params.append(limit)
     return query(sql, params)
 
@@ -255,19 +308,19 @@ def update_agent_task(task_id, **fields):
     fields = {k: v for k, v in fields.items() if k in allowed}
     if not fields:
         return
-    set_clause = ", ".join(f"{k} = ?" for k in fields) + ", updated_at = datetime('now')"
-    execute(f"UPDATE agent_tasks SET {set_clause} WHERE id = ?", list(fields.values()) + [task_id])
+    set_clause = ", ".join(f"{k} = %s" for k in fields) + ", updated_at = %s"
+    execute(f"UPDATE agent_tasks SET {set_clause} WHERE id = %s", list(fields.values()) + [_now(), task_id])
 
 
 def get_agent_task(user_id, task_id):
     """Fetch one task row, scoped to its owner -- a job's live status is
     only ever visible to the user who started it."""
-    return query("SELECT * FROM agent_tasks WHERE id = ? AND user_id = ?", (task_id, user_id), one=True)
+    return query("SELECT * FROM agent_tasks WHERE id = %s AND user_id = %s", (task_id, user_id), one=True)
 
 
 def recent_activity(user_id, limit=8):
     return query(
-        "SELECT * FROM agent_tasks WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+        "SELECT * FROM agent_tasks WHERE user_id = %s ORDER BY created_at DESC LIMIT %s",
         (user_id, limit),
     )
 
