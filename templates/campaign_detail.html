@@ -30,6 +30,7 @@
         <td>
           {% if t['status'] == 'needs_approval' %}
           <form method="post" action="{{ url_for('campaigns.approve_task', campaign_id=campaign['id'], task_id=t['id']) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn btn-sm btn-primary">Approve</button>
           </form>
           {% elif t['status'] == 'blocked' %}
