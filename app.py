@@ -6,6 +6,7 @@ from flask import Flask, g
 import config
 import database as db
 import access
+from csrf import init_csrf_protection
 
 
 def create_app():
@@ -17,6 +18,10 @@ def create_app():
     # is a combined-request limit, not a per-clip one -- 400MB comfortably
     # covers a handful of short raw clips for a demo.
     app.config["MAX_CONTENT_LENGTH"] = 400 * 1024 * 1024
+
+    # Blocks forged cross-site form submissions on every POST route --
+    # see csrf.py for what this actually protects against.
+    init_csrf_protection(app)
 
     db.init_db()  # idempotent -- CREATE TABLE IF NOT EXISTS
     db.seed_demo_account()
@@ -59,6 +64,11 @@ def create_app():
             "g_plan": plan,
             "cfg": config,
         }
+
+    @app.errorhandler(400)
+    def bad_request(e):
+        message = getattr(e, "description", None) or "400 -- that request could not be processed."
+        return message, 400
 
     @app.errorhandler(403)
     def forbidden(e):
