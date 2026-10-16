@@ -12,6 +12,7 @@
     <label>Password</label>
     <input type="password" name="password" required>
   </div>
+  <p class="text-sm" style="text-align:right; margin-top:-8px;"><a href="{{ url_for('auth.forgot_password') }}" style="color:var(--brand-400); font-weight:600;">Forgot password?</a></p>
   <button type="submit" class="btn btn-primary btn-block">Log in</button>
 </form>
 <p class="text-sm text-secondary mt-4" style="text-align:center;">New to Creator Hub AI? <a href="{{ url_for('auth.signup') }}" style="color:var(--brand-400); font-weight:600;">Create an account</a></p>
