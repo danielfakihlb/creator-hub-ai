@@ -297,6 +297,9 @@ INTEGRATIONS = {
     "video_processing": {
         "label": "FFmpeg on this server (Video Editor / Color Grading) -- checked by looking for the ffmpeg program, not an API key",
         "env_vars": [],
+    },    "email": {
+        "label": "Email sending (password reset links) -- any SMTP provider (a Gmail account with an App Password, or a transactional provider's free tier like Brevo/SendGrid)",
+        "env_vars": ["SMTP_HOST", "SMTP_PORT", "SMTP_USERNAME", "SMTP_PASSWORD", "SMTP_FROM_EMAIL"],
     },
     "speech_audio": {
         "label": "Speech / audio processing API (Audio & Voice Agent)",
