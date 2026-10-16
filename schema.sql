@@ -131,6 +131,21 @@ CREATE TABLE IF NOT EXISTS agent_tasks (
 
 CREATE INDEX IF NOT EXISTS idx_agent_tasks_user ON agent_tasks(user_id);
 
+-- Password-reset links. Only a SHA-256 hash of the real token is ever
+-- stored (same reasoning as hashing passwords) -- if this table ever
+-- leaked, the hashes alone couldn't be used to reset anyone's password.
+CREATE TABLE IF NOT EXISTS password_resets (
+    id              SERIAL PRIMARY KEY,
+    user_id         INTEGER NOT NULL REFERENCES users(id),
+    token_hash      TEXT NOT NULL,
+    expires_at      TEXT NOT NULL,
+    used_at         TEXT,
+    created_at      TEXT NOT NULL DEFAULT (TO_CHAR(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_password_resets_token_hash ON password_resets(token_hash);
+CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id);
+
 CREATE TABLE IF NOT EXISTS admin_audit_log (
     id              SERIAL PRIMARY KEY,
     admin_user_id   INTEGER NOT NULL REFERENCES users(id),
