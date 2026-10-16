@@ -25,6 +25,7 @@
 
 <div class="card mb-4">
   <form method="post" action="{{ url_for('audio_voice.submit') }}" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="field">
       <label>Audio or video file</label>
       <input type="file" name="clip" accept=".mp3,.wav,.m4a,.aac,.ogg,.flac,.mp4,.mov,.m4v,.webm,.avi,.mkv" required>
