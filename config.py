@@ -327,7 +327,10 @@ def is_configured(integration_key):
 
 
 SECRET_KEY = os.environ.get("CREATOR_HUB_SECRET_KEY", "dev-only-insecure-key-change-me")
-DATABASE_PATH = os.environ.get(
-    "CREATOR_HUB_DB_PATH",
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "instance", "creator_hub.db"),
-)
+
+# The database is now a real, persistent Postgres instance (see database.py
+# for why: the web service's own disk gets wiped on every restart, which
+# used to take all user data with it). This is the standard connection
+# string Render gives you for a Postgres database -- set it in the web
+# service's Environment settings.
+DATABASE_URL = os.environ.get("DATABASE_URL")
