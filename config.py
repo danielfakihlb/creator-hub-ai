@@ -112,12 +112,13 @@ AGENTS = {
         "icon": "waveform",
         "plans": ["creator", "full_studio"],
         "status": "orchestration_ready",
-        "requires_integration": "Works now -- upload one audio or video file, describe what you want in plain language, and it decides which real tools to run: real noise reduction and loudness cleanup (FFmpeg, on this server, no external key needed), real speech transcription into a standalone subtitle file with optional translation (OpenAI), or a real voiceover narration generated with one of OpenAI's own synthesized voices -- only the operations your instruction actually asked for. Needs a connected OpenAI key for transcription, translation, and voiceover generation. Real dubbing/translation of existing spoken audio isn't built yet -- only subtitle text translation and brand-new voiceover generation are real, and voices are always OpenAI's fixed set, never a cloned or impersonated real person's voice.",
+        "requires_integration": "Works now -- upload one audio or video file, describe what you want in plain language, and it decides which real tools to run: real noise reduction and loudness cleanup (FFmpeg, on this server, no external key needed), real speech transcription into a standalone subtitle file with optional translation (OpenAI), a real translated spoken dub -- the actual speech in the file, transcribed, translated, and spoken aloud in a new track (OpenAI) -- or a brand-new voiceover narration generated with one of OpenAI's own synthesized voices -- only the operations your instruction actually asked for. Needs a connected OpenAI key for transcription, translation, and speech generation. Voices are always OpenAI's fixed synthesized set, never a cloned or impersonated real person's voice, and the translated dub is a real, correct translation spoken aloud -- not a frame-perfectly lip-synced redub, since translated text rarely matches the original's exact length.",
         "capabilities": [
             "Upload one audio or video file and describe the whole request in plain language",
             "Real noise reduction & loudness cleanup for dialogue clarity (FFmpeg, runs on this server)",
             "Real speech transcription into a standalone, downloadable subtitle (.srt) file",
             "Subtitle translation into another language, timing untouched",
+            "Real speech translation: transcribes what was actually said and speaks the translation aloud as a new audio track -- a true translated dub, not just translated text",
             "Real voiceover narration from a script you give (verbatim) or one it writes, read by one of a fixed set of authorized, synthesized voices",
             "A live, honest progress page while it works -- real measured progress, not a blind loading screen",
             "Multiple real outputs from one request are bundled into a single .zip download",
@@ -290,15 +291,15 @@ INTEGRATIONS = {
         "env_vars": ["STRIPE_SECRET_KEY", "STRIPE_PUBLISHABLE_KEY"],
     },
     "llm_provider": {
-        "label": "OpenAI API key (Scriptwriter / Trend Researcher / Ads Manager / Social Media Manager / Performance Analyst / Campaign Planner / AI Video Editor's transcription & edit planning / AI Audio & Voice Agent's transcription, translation & voiceover generation)",
+        "label": "OpenAI API key (Scriptwriter / Trend Researcher / Ads Manager / Social Media Manager / Performance Analyst / Campaign Planner / AI Video Editor's transcription & edit planning)",
         "env_vars": ["OPENAI_API_KEY"],
     },
     "video_processing": {
-        "label": "FFmpeg on this server (Video Editor / Color Grading / Audio & Voice Agent's noise reduction) -- checked by looking for the ffmpeg program, not an API key",
+        "label": "FFmpeg on this server (Video Editor / Color Grading) -- checked by looking for the ffmpeg program, not an API key",
         "env_vars": [],
     },
     "speech_audio": {
-        "label": "Speech / audio processing API (kept for reference; the AI Audio & Voice Agent actually runs on the OpenAI key + FFmpeg above, not a separate speech API account)",
+        "label": "Speech / audio processing API (Audio & Voice Agent)",
         "env_vars": ["SPEECH_API_KEY"],
     },
     "social_instagram": {"label": "Instagram API", "env_vars": ["INSTAGRAM_ACCESS_TOKEN"]},
