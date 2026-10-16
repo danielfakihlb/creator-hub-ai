@@ -19,14 +19,18 @@ any route -- needed to change for this migration; only this file,
 schema.sql, and the DATABASE_URL setting in config.py did.
 """
 
+import hashlib
 import os
+import secrets
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import psycopg2
 import psycopg2.extras
 
 import config
+
+PASSWORD_RESET_TOKEN_TTL_SECONDS = 3600  # 1 hour
 
 
 class ReferencedRowError(Exception):
@@ -107,6 +111,69 @@ def create_user(email, password_hash, full_name, is_admin=False):
     return execute(
         "INSERT INTO users (email, password_hash, full_name, is_admin) VALUES (%s, %s, %s, %s) RETURNING id",
         (email, password_hash, full_name, 1 if is_admin else 0),
+    )
+
+
+def update_user_password(user_id, password_hash):
+    execute("UPDATE users SET password_hash = %s WHERE id = %s", (password_hash, user_id))
+
+
+# ---------------------------------------------------------------------
+# Password reset
+# ---------------------------------------------------------------------
+
+def create_password_reset_token(user_id):
+    """Issue a real, high-entropy password-reset token (32 random bytes,
+    URL-safe) for this user. Only a SHA-256 hash of it is ever stored --
+    same reasoning as hashing passwords -- so a leaked database alone
+    couldn't be used to reset anyone's password. The raw token is
+    returned here ONCE, for the caller to put straight into the reset
+    email/link; it is never persisted anywhere. Any reset tokens already
+    issued to this user are invalidated first, so only the newest link
+    actually works."""
+    invalidate_password_resets_for_user(user_id)
+    token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    expires_at = (datetime.now(timezone.utc) + timedelta(seconds=PASSWORD_RESET_TOKEN_TTL_SECONDS)).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+    execute(
+        "INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES (%s, %s, %s)",
+        (user_id, token_hash, expires_at),
+    )
+    return token
+
+
+def get_valid_password_reset(token):
+    """Look up a password-reset token by its hash. Returns the matching
+    password_resets row (plus the owning user's email, for display) only
+    if it hasn't already been used and hasn't expired -- otherwise None,
+    so a caller never has to re-derive either check itself."""
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    row = query(
+        "SELECT pr.*, u.email AS user_email FROM password_resets pr "
+        "JOIN users u ON u.id = pr.user_id "
+        "WHERE pr.token_hash = %s AND pr.used_at IS NULL",
+        (token_hash,),
+        one=True,
+    )
+    if not row or row["expires_at"] < _now():
+        return None
+    return row
+
+
+def mark_password_reset_used(reset_id):
+    execute("UPDATE password_resets SET used_at = %s WHERE id = %s", (_now(), reset_id))
+
+
+def invalidate_password_resets_for_user(user_id):
+    """Mark every still-valid reset token for this user as used. Called
+    before issuing a new one (so only the latest emailed link works) and
+    again right after a successful reset (so an older, already-emailed
+    link can't be replayed afterward)."""
+    execute(
+        "UPDATE password_resets SET used_at = %s WHERE user_id = %s AND used_at IS NULL",
+        (_now(), user_id),
     )
 
 
