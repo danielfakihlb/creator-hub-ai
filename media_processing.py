@@ -208,7 +208,14 @@ def remap_transcripts_to_timeline(segments, transcripts_by_clip):
     the parts that actually survive the cut. This is what makes burned-in
     captions line up with the real, edited video instead of the original
     raw footage. Returns a list of {"start","end","text"} on that new
-    ("assembled", pre-speed-change) timeline."""
+    ("assembled", pre-speed-change) timeline -- plus a "words" list on
+    each entry (also remapped the same way) whenever the original
+    transcript segment carried per-word timestamps (see
+    llm_client.transcribe_audio), so the animated word-highlight caption
+    style has real timing to work with. A segment with no word-level data
+    (or a cut that only partially survives, splitting a word's timing)
+    simply gets an empty "words" list -- the caller falls back to the
+    plain caption style for that stretch rather than guessing."""
     entries = []
     offset = 0.0
     for seg in segments:
@@ -217,10 +224,21 @@ def remap_transcripts_to_timeline(segments, transcripts_by_clip):
             overlap_start = max(t["start"], seg["start"])
             overlap_end = min(t["end"], seg["end"])
             if overlap_end > overlap_start:
+                remapped_words = []
+                for w in t.get("words") or []:
+                    w_start = max(w["start"], overlap_start)
+                    w_end = min(w["end"], overlap_end)
+                    if w_end > w_start:
+                        remapped_words.append({
+                            "start": offset + (w_start - seg["start"]),
+                            "end": offset + (w_end - seg["start"]),
+                            "text": w["text"],
+                        })
                 entries.append({
                     "start": offset + (overlap_start - seg["start"]),
                     "end": offset + (overlap_end - seg["start"]),
                     "text": t["text"],
+                    "words": remapped_words,
                 })
         offset += seg["end"] - seg["start"]
     return entries
@@ -257,6 +275,120 @@ def _escape_for_filter_path(path):
     # inside a filename argument -- escape them so a path is never
     # misread as extra filter options.
     return path.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+
+
+# ---------------------------------------------------------------------
+# Animated, word-by-word highlighted captions (the "trendy" short-form
+# caption style -- a few words on screen at a time, growing bold/colored
+# as each is spoken) built from real per-word timestamps, burned in with
+# FFmpeg's libass-backed `ass` filter. Falls back to the plain
+# line-at-a-time style above whenever word-level timing isn't available
+# (e.g. captions were translated, so the original words no longer line
+# up with the translated text) -- never a broken or blank caption.
+# ---------------------------------------------------------------------
+
+_ANIMATED_WORDS_PER_CHUNK = 4
+_ANIMATED_MIN_WORD_DURATION = 0.12  # seconds -- a floor so a very short word doesn't flash unreadably
+_ANIMATED_HIGHLIGHT_COLOR = "&H00FFFF&"  # ASS is &HBBGGRR& -- this is yellow
+
+
+def _escape_ass_text(text):
+    # ASS treats '{' / '}' as the start/end of an override block, and '\'
+    # as the start of a tag -- escape both so real spoken text (which can
+    # contain either, rarely) is never misread as formatting.
+    return text.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
+
+
+def _ass_timestamp(seconds):
+    seconds = max(0.0, seconds)
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = seconds % 60
+    centis = int(round((secs - int(secs)) * 100))
+    if centis == 100:  # rounding carried into the next whole second
+        centis = 0
+        secs += 1
+    return f"{hours:d}:{minutes:02d}:{int(secs):02d}.{centis:02d}"
+
+
+def _chunk_words(words, max_per_chunk=_ANIMATED_WORDS_PER_CHUNK):
+    chunks = []
+    for i in range(0, len(words), max_per_chunk):
+        chunks.append(words[i:i + max_per_chunk])
+    return chunks
+
+
+def _write_animated_ass(caption_entries, output_dir, width, height):
+    """Build a .ass subtitle file where each short group of words (a
+    "chunk") is shown on screen together, with whichever word is actually
+    being spoken at that instant highlighted in color -- real karaoke-style
+    timing driven by OpenAI's own per-word timestamps, not a guess at
+    pacing. Returns the file path, or None if there was no usable
+    word-level data to animate (the caller falls back to the plain style)."""
+    dialogue_lines = []
+    for entry in caption_entries:
+        words = entry.get("words") or []
+        if entry["end"] <= entry["start"]:
+            continue
+        if not words:
+            # No word-level timing for this stretch (shouldn't normally
+            # happen when this function is even called, but stay honest
+            # rather than drop the line) -- show it as one static chunk.
+            text = _escape_ass_text(entry["text"].strip())
+            if text:
+                dialogue_lines.append(
+                    f"Dialogue: 0,{_ass_timestamp(entry['start'])},{_ass_timestamp(entry['end'])},Default,,0,0,0,,{text}"
+                )
+            continue
+        for chunk in _chunk_words(words):
+            chunk_escaped = [_escape_ass_text(w["text"].strip()) for w in chunk]
+            for i, word in enumerate(chunk):
+                win_start = word["start"]
+                win_end = chunk[i + 1]["start"] if i + 1 < len(chunk) else max(word["end"], word["start"] + _ANIMATED_MIN_WORD_DURATION)
+                if win_end <= win_start:
+                    continue
+                parts = []
+                for j, w_text in enumerate(chunk_escaped):
+                    if not w_text:
+                        continue
+                    if j == i:
+                        parts.append(f"{{\\c{_ANIMATED_HIGHLIGHT_COLOR}}}{w_text}{{\\c}}")
+                    else:
+                        parts.append(w_text)
+                line_text = " ".join(parts)
+                if not line_text:
+                    continue
+                dialogue_lines.append(
+                    f"Dialogue: 0,{_ass_timestamp(win_start)},{_ass_timestamp(win_end)},Default,,0,0,0,,{line_text}"
+                )
+
+    if not dialogue_lines:
+        return None
+
+    font_size = max(28, round(height / 24))
+    margin_v = round(height * 0.08)
+    header = (
+        "[Script Info]\n"
+        "ScriptType: v4.00+\n"
+        f"PlayResX: {width}\n"
+        f"PlayResY: {height}\n"
+        "ScaledBorderAndShadow: yes\n\n"
+        "[V4+ Styles]\n"
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
+        "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
+        "Alignment, MarginL, MarginR, MarginV, Encoding\n"
+        f"Style: Default,DejaVu Sans,{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,"
+        f"-1,0,0,0,100,100,0,0,1,3,2,2,40,40,{margin_v},1\n\n"
+        "[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+    )
+
+    ass_path = os.path.join(output_dir, f"captions_{uuid.uuid4().hex[:10]}.ass")
+    with open(ass_path, "w", encoding="utf-8") as f:
+        f.write(header)
+        f.write("\n".join(dialogue_lines))
+        f.write("\n")
+    return ass_path
 
 
 # ---------------------------------------------------------------------
@@ -524,20 +656,48 @@ def execute_edit_plan(clip_paths, plan, output_dir, platform="reels_tiktok_short
         if want_captions:
             step_weight = dict(step_weights)["captions"]
             rescaled = [
-                {"start": e["start"] / speed_factor, "end": e["end"] / speed_factor, "text": e["text"]}
+                {
+                    "start": e["start"] / speed_factor,
+                    "end": e["end"] / speed_factor,
+                    "text": e["text"],
+                    "words": [
+                        {"start": w["start"] / speed_factor, "end": w["end"] / speed_factor, "text": w["text"]}
+                        for w in (e.get("words") or [])
+                    ],
+                }
                 for e in caption_entries
             ]
-            srt_path = _write_srt(rescaled, output_dir)
-            if srt_path:
-                temp_paths.append(srt_path)
+            has_word_timing = any(e["words"] for e in rescaled)
+
+            caption_filter = None
+            if has_word_timing:
+                # Animated, word-by-word highlighted captions -- the
+                # "trendy" short-form style -- built from real per-word
+                # timestamps via the ass filter (libass).
+                ass_path = _write_animated_ass(rescaled, output_dir, width, height)
+                if ass_path:
+                    temp_paths.append(ass_path)
+                    caption_filter = f"ass={_escape_for_filter_path(ass_path)}:fontsdir={_escape_for_filter_path(_FONTS_DIR)}"
+                else:
+                    notes.append("Animated captions skipped: no usable word timing after remapping; falling back to plain captions.")
+
+            if caption_filter is None:
+                # Plain, line-at-a-time captions -- used whenever there's
+                # no word-level timing to animate (e.g. captions were
+                # translated, so word timing no longer applies).
+                srt_path = _write_srt(rescaled, output_dir)
+                if srt_path:
+                    temp_paths.append(srt_path)
+                    style = "FontName=DejaVu Sans,FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=0,Alignment=2,MarginV=70"
+                    caption_filter = (
+                        f"subtitles={_escape_for_filter_path(srt_path)}:"
+                        f"fontsdir={_escape_for_filter_path(_FONTS_DIR)}:force_style='{style}'"
+                    )
+
+            if caption_filter:
                 captioned_path = os.path.join(output_dir, f"_captioned_{work_id}.mp4")
-                style = "FontName=DejaVu Sans,FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=0,Alignment=2,MarginV=70"
-                subtitles_filter = (
-                    f"subtitles={_escape_for_filter_path(srt_path)}:"
-                    f"fontsdir={_escape_for_filter_path(_FONTS_DIR)}:force_style='{style}'"
-                )
                 ok, error = _run_ffmpeg_progress(
-                    ["-i", current_path, "-vf", subtitles_filter,
+                    ["-i", current_path, "-vf", caption_filter,
                      "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "copy", captioned_path],
                     current_duration, report(base, step_weight, total_weight, "Burning in captions..."),
                 )
