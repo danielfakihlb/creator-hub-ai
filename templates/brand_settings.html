@@ -11,6 +11,7 @@
   <div class="card" style="align-self:start;">
     <h3 style="font-size:15px; margin-bottom:14px;">New brand profile</h3>
     <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="field"><label>Brand name</label><input type="text" name="name" required placeholder="e.g. AlphaLeb"></div>
       <div class="field"><label>Description</label><textarea name="description" rows="2"></textarea></div>
       <div class="field"><label>Tone of voice</label><input type="text" name="tone_of_voice" placeholder="Motivational, direct, no fluff"></div>
@@ -35,6 +36,7 @@
           <div class="flex gap-2 items-center">
             {% if p['primary_color'] %}<span style="width:16px;height:16px;border-radius:5px;background:{{ p['primary_color'] }}; border:1px solid var(--border-strong);"></span>{% endif %}
             <form method="post" action="{{ url_for('brand.delete', profile_id=p['id']) }}" onsubmit="return confirm('Remove this brand profile?');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button type="submit" class="btn btn-ghost btn-sm">Remove</button>
             </form>
           </div>
