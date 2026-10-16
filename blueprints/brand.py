@@ -40,6 +40,9 @@ def settings():
 @access.login_required
 def delete(profile_id):
     user = access.current_user()
-    db.delete_brand_profile(user["id"], profile_id)
-    flash("Brand profile removed.", "info")
+    try:
+        db.delete_brand_profile(user["id"], profile_id)
+        flash("Brand profile removed.", "info")
+    except db.ReferencedRowError:
+        flash("Can't remove this brand profile -- it's still assigned to a project. Reassign or delete that project first.", "danger")
     return redirect(url_for("brand.settings"))
