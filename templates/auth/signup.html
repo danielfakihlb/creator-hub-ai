@@ -3,6 +3,7 @@
 <h2 style="margin-bottom:6px;">Create your account</h2>
 <p class="text-secondary text-sm mb-4">Start with any plan &mdash; you can switch anytime.</p>
 <form method="post" action="{{ url_for('auth.signup') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   {% if selected_plan %}<input type="hidden" name="plan" value="{{ selected_plan }}">{% endif %}
   <div class="field">
     <label>Full name</label>
