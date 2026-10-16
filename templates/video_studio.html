@@ -25,6 +25,7 @@
 
 <div class="card mb-4">
   <form method="post" action="{{ url_for('media_tools.submit') }}" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="field">
       <label>Raw footage clips (up to {{ max_reel_clips }})</label>
       <input type="file" name="clips" accept=".mp4,.mov,.m4v,.webm,.avi,.mkv" multiple required>
