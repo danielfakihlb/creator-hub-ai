@@ -7,7 +7,12 @@
 <div class="app-shell">
   <aside class="sidebar">
     <a href="{{ url_for('dashboard.home') }}" class="sidebar-brand">
-      <span class="brand-logo" style="width:26px;height:26px;"></span> Creator Hub AI
+      {% if g_agency and g_agency['logo_url'] %}
+      <img src="{{ g_agency['logo_url'] }}" alt="{{ g_agency['name'] }}" style="width:26px;height:26px;border-radius:6px;object-fit:cover;">
+      {% else %}
+      <span class="brand-logo" style="width:26px;height:26px;"></span>
+      {% endif %}
+      {{ g_agency['name'] if g_agency else 'Creator Hub AI' }}
     </a>
 
     <a class="sidebar-link {{ 'active' if active=='dashboard' }}" href="{{ url_for('dashboard.home') }}">{{ ic.icon('home',17) }} Dashboard</a>
@@ -22,6 +27,9 @@
     <a class="sidebar-link {{ 'active' if active=='account' }}" href="{{ url_for('account.settings') }}">{{ ic.icon('settings',17) }} Account Settings</a>
     {% if g_user and g_user['is_admin'] %}
     <a class="sidebar-link {{ 'active' if active=='admin' }}" href="{{ url_for('admin.overview') }}">{{ ic.icon('shield',17) }} Admin</a>
+    {% endif %}
+    {% if g_user and g_user['is_platform_owner'] %}
+    <a class="sidebar-link {{ 'active' if active=='platform_admin' }}" href="{{ url_for('admin.platform_overview') }}">{{ ic.icon('shield',17) }} All Agencies</a>
     {% endif %}
     <a class="sidebar-link" href="{{ url_for('auth.logout') }}">{{ ic.icon('logout',17) }} Log out</a>
 

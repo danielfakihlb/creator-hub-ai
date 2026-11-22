@@ -1,0 +1,35 @@
+{% extends "base_app.html" %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <div class="page-title">All Agencies</div>
+    <div class="page-subtitle">Every agency on the platform &mdash; visible only to the platform owner.</div>
+  </div>
+</div>
+
+<div class="card" style="padding:0;">
+  <table class="table">
+    <thead><tr><th>Agency</th><th>Members</th><th>Plan</th><th>Status</th><th>Created</th><th></th></tr></thead>
+    <tbody>
+      {% for a in agencies %}
+      <tr>
+        <td style="font-weight:600;">{{ a['name'] }}</td>
+        <td>{{ a['member_count'] }}</td>
+        <td>{% if a['active_plan_slug'] and plans.get(a['active_plan_slug']) %}{{ plans[a['active_plan_slug']].name }}{% else %}<span class="text-tertiary">None</span>{% endif %}</td>
+        <td><span class="badge {{ 'badge-success' if a['is_active'] else 'badge-warning' }}">{{ 'Active' if a['is_active'] else 'Suspended' }}</span></td>
+        <td class="text-tertiary text-sm">{{ a['created_at'] }}</td>
+        <td>
+          <form method="post" action="{{ url_for('admin.toggle_agency_active', agency_id=a['id']) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-secondary btn-sm">{{ 'Suspend' if a['is_active'] else 'Reactivate' }}</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+      {% if not agencies %}
+      <tr><td colspan="6" class="text-tertiary text-sm" style="padding:20px;">No agencies yet.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
