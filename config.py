@@ -26,26 +26,43 @@ PLANS = {
         "slug": "creator",
         "name": "Creator",
         "price_usd": 50,
-        "tagline": "The core toolkit for solo creators.",
+        "tagline": "Every AI agent, for your own content -- solo use.",
         "badge": None,
     },
     "full_studio": {
         "slug": "full_studio",
-        "name": "Full Studio",
-        "price_usd": 80,
-        "tagline": "Every agent. Every workflow. Full creative team.",
-        "badge": "Full Studio",
+        "name": "Agency",
+        "price_usd": 399,
+        "tagline": "Every AI agent, white-labeled under your own logo, for your whole team.",
+        "badge": "Agency",
     },
 }
 
 PLAN_ORDER = ["creator", "full_studio"]
 
+# Kept as its own flag, separate from the agent list below, because this
+# is no longer about WHICH agents a plan unlocks -- every plan unlocks
+# every agent now (Creator Hub AI is sold agency-first: an agency's whole
+# team needs the full toolkit, not a cut-down version). The only thing
+# that differs between plans is agency features: white-label branding
+# (your logo/name instead of "Creator Hub AI") and inviting unlimited
+# teammates. Only the "full_studio" (displayed as "Agency") plan slug
+# grants those -- see blueprints/admin.py, which checks this before
+# allowing a branding update or a teammate invite.
+AGENCY_FEATURE_PLANS = ["full_studio"]
+
+
+def plan_allows_agency_features(plan_slug):
+    return plan_slug in AGENCY_FEATURE_PLANS
+
+
 # -----------------------------------------------------------------------
 # AI Agents
 # -----------------------------------------------------------------------
-# "plans" lists which plan slugs can access this agent. An agent reachable
-# from BOTH plans should list both slugs. Agents exclusive to Full Studio
-# (per spec section 2 / 3) list only "full_studio".
+# "plans" lists which plan slugs can access this agent. Every agent now
+# lists every plan slug -- any paid plan unlocks the full toolkit. This
+# list is kept (rather than removed) so a future narrower/cheaper plan
+# could still gate specific agents without a bigger rework.
 #
 # "status" communicates real implementation state to the UI so we never
 # present a placeholder as a finished feature:
@@ -129,7 +146,7 @@ AGENTS = {
         "name": "AI Social Media Manager",
         "short_description": "Plan, organize, and publish across platforms.",
         "icon": "calendar",
-        "plans": ["full_studio"],
+        "plans": ["creator", "full_studio"],
         "status": "orchestration_ready",
         "requires_integration": "Captions, hashtags, and content calendar drafts use your connected OpenAI key and work now. Direct publishing to Instagram, TikTok, or YouTube requires each platform's own connected API (a separate, bigger integration) -- until then, everything exports as a draft for you to post yourself.",
         "capabilities": [
@@ -144,7 +161,7 @@ AGENTS = {
         "name": "AI Ads Manager",
         "short_description": "Plan smart ad spend and write the creative to match.",
         "icon": "megaphone",
-        "plans": ["full_studio"],
+        "plans": ["creator", "full_studio"],
         "status": "orchestration_ready",
         "requires_integration": "Ad concepts, copy, and budget/platform strategy guidance use your connected OpenAI key and work now. Launching live campaigns or spending real budget still requires a connected ad-platform API and explicit per-launch approval -- the system never spends money automatically.",
         "capabilities": [
@@ -174,7 +191,7 @@ AGENTS = {
         "name": "AI Performance Analyst",
         "short_description": "Understand what's working and why.",
         "icon": "chart",
-        "plans": ["full_studio"],
+        "plans": ["creator", "full_studio"],
         "status": "orchestration_ready",
         "requires_integration": "Works now with your connected OpenAI key -- paste in your real numbers (views, engagement, watch time) and it analyzes them. A direct analytics platform connection (auto-pulling the numbers for you) isn't built yet; until then, it tells you what's missing rather than inventing numbers.",
         "capabilities": [

@@ -11,7 +11,7 @@ python3 app.py
 
 Then open http://localhost:5000. A demo account is seeded automatically:
 
-- **demo@creatorhub.ai** / **demo12345** -- Full Studio plan, admin access
+- **demo@creatorhub.ai** / **demo12345** -- Agency plan, admin access (its own demo agency)
 - Sign up for a new account to try the Creator plan and the upgrade-gate flow
 
 ## What's real vs. what needs connecting
