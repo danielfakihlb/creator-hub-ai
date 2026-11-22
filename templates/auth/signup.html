@@ -6,6 +6,11 @@
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   {% if selected_plan %}<input type="hidden" name="plan" value="{{ selected_plan }}">{% endif %}
   <div class="field">
+    <label>Agency / company name</label>
+    <input type="text" name="agency_name" required>
+    <div class="field-hint">This is your team's workspace -- you'll be its admin, and can invite teammates after you sign up.</div>
+  </div>
+  <div class="field">
     <label>Full name</label>
     <input type="text" name="full_name" required>
   </div>
