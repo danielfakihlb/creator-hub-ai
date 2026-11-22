@@ -22,6 +22,14 @@ CREATE TABLE IF NOT EXISTS agencies (
     created_at      TEXT NOT NULL DEFAULT (TO_CHAR(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'))
 );
 
+-- The agency's own stable username on Upload-Post (upload-post.com), the
+-- unified posting API Creator Hub AI publishes through -- one Upload-Post
+-- "profile" per agency, so each agency connects and posts to its own
+-- Instagram account, completely separate from every other agency's, even
+-- though every agency shares Daniel's one Upload-Post API key. Null until
+-- the agency's first connect attempt creates it (see upload_post_client.py).
+ALTER TABLE agencies ADD COLUMN IF NOT EXISTS upload_post_username TEXT;
+
 CREATE TABLE IF NOT EXISTS users (
     id              SERIAL PRIMARY KEY,
     email           TEXT UNIQUE NOT NULL,

@@ -148,12 +148,12 @@ AGENTS = {
         "icon": "calendar",
         "plans": ["creator", "full_studio"],
         "status": "orchestration_ready",
-        "requires_integration": "Captions, hashtags, and content calendar drafts use your connected OpenAI key and work now. Direct publishing to Instagram, TikTok, or YouTube requires each platform's own connected API (a separate, bigger integration) -- until then, everything exports as a draft for you to post yourself.",
+        "requires_integration": "Captions, hashtags, and content calendar drafts use your connected OpenAI key and work now. Direct publishing to Instagram is real and working, through a connected Upload-Post account -- each agency connects its own Instagram account from this agent's page. TikTok and YouTube publishing aren't built yet; those still export as drafts for you to post yourself.",
         "capabilities": [
             "Captions, hashtags, titles",
             "Content calendar & drafts",
-            "Multi-platform repurposing",
-            "Publishing status tracking (never marked published without provider confirmation)",
+            "Real, direct publishing to Instagram -- attach a photo or video and a caption, and it posts for real",
+            "Publishing status tracking (never marked published without Instagram's own confirmation)",
         ],
     },
     "ads_manager": {
@@ -322,8 +322,17 @@ INTEGRATIONS = {
         "label": "Speech / audio processing API (Audio & Voice Agent)",
         "env_vars": ["SPEECH_API_KEY"],
     },
-    "social_instagram": {"label": "Instagram API", "env_vars": ["INSTAGRAM_ACCESS_TOKEN"]},
-    "social_tiktok": {"label": "TikTok API", "env_vars": ["TIKTOK_ACCESS_TOKEN"]},
+    # Replaces the old placeholder raw-token entries (social_instagram /
+    # social_tiktok) -- rather than go through Meta's own developer app
+    # review ourselves, Creator Hub AI publishes through Upload-Post
+    # (upload-post.com), a unified posting API that already holds its own
+    # approved app. One API key here serves every agency; each agency gets
+    # its own Upload-Post "profile" and connects its own Instagram account
+    # to it (see upload_post_client.py and blueprints/social_publishing.py).
+    "social_posting": {
+        "label": "Upload-Post API (direct Instagram publishing, agency-by-agency)",
+        "env_vars": ["UPLOAD_POST_API_KEY"],
+    },
     "social_youtube": {"label": "YouTube API", "env_vars": ["YOUTUBE_ACCESS_TOKEN"]},
     "ads_platform": {"label": "Ads platform API", "env_vars": ["ADS_PLATFORM_API_KEY"]},
     "analytics": {"label": "Analytics data source", "env_vars": ["ANALYTICS_API_KEY"]},

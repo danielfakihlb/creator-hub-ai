@@ -37,6 +37,7 @@ def create_app():
     from blueprints.media import bp as media_bp
     from blueprints.media_tools import bp as media_tools_bp
     from blueprints.audio_voice import bp as audio_voice_bp
+    from blueprints.social_publishing import bp as social_publishing_bp
     from blueprints.brand import bp as brand_bp
     from blueprints.campaigns import bp as campaigns_bp
     from blueprints.billing import bp as billing_bp
@@ -51,6 +52,7 @@ def create_app():
     app.register_blueprint(media_bp)
     app.register_blueprint(media_tools_bp)
     app.register_blueprint(audio_voice_bp)
+    app.register_blueprint(social_publishing_bp)
     app.register_blueprint(brand_bp)
     app.register_blueprint(campaigns_bp)
     app.register_blueprint(billing_bp)

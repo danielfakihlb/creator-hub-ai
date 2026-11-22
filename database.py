@@ -143,7 +143,7 @@ def update_agency(agency_id, **fields):
     name/logo_url (the branding swap) and is_active (a platform owner
     suspending an agency). Only the fields passed are changed, same
     pattern as update_agent_task below."""
-    allowed = {"name", "logo_url", "is_active"}
+    allowed = {"name", "logo_url", "is_active", "upload_post_username"}
     fields = {k: v for k, v in fields.items() if k in allowed}
     if not fields:
         return
