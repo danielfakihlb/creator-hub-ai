@@ -25,6 +25,11 @@ DEDICATED_PAGE_REDIRECTS = {
     # processed file(s) too -- same reasoning, routed to its own real
     # upload/download page in blueprints/audio_voice.py.
     "audio_voice": "audio_voice.studio",
+    # Social Media Manager now does real, direct Instagram publishing (an
+    # uploaded file + a connected Upload-Post account), which doesn't fit
+    # the generic text-box workspace either -- same reasoning as the two
+    # above. Routed to its own real page in blueprints/social_publishing.py.
+    "social_media_manager": "social_publishing.studio",
 }
 
 # Maps an agent to the integration key(s) (config.INTEGRATIONS) its real
@@ -49,11 +54,12 @@ AGENT_INTEGRATIONS = {
     # no separate speech API account is needed.
     "audio_voice": ["video_processing", "llm_provider"],
     "trend_researcher": ["llm_provider"],
-    # Caption/hashtag/calendar DRAFTING only needs the OpenAI key -- actual
-    # posting to these platforms is a separate, much bigger project (each
-    # platform's own developer app + review process; see the roadmap
-    # Daniel asked to keep in the project notes) that isn't built yet.
-    "social_media_manager": ["llm_provider"],
+    # Kept accurate here for documentation/consistency even though
+    # DEDICATED_PAGE_REDIRECTS means the generic workspace below never
+    # actually renders for this agent -- its real dedicated page
+    # (blueprints/social_publishing.py) checks llm_provider (drafts) and
+    # social_posting (real Instagram publishing) itself.
+    "social_media_manager": ["llm_provider", "social_posting"],
     # Ads Manager's creative/copy generation only needs the OpenAI key --
     # launching a real campaign or spending budget is a separate, much
     # bigger step (a connected ad-platform account + explicit per-launch
@@ -108,22 +114,6 @@ def _run_ads_manager(user, request_summary):
     return llm_client.generate_ads_creative(request_summary, brand_profile=brand_profile)
 
 
-def _run_social_media_manager(user, request_summary):
-    """Real processing for the Social Media Manager agent: an actual call
-    to OpenAI that writes captions, hashtags, and a content calendar draft.
-
-    Scope-critical: this only ever produces drafts. It never posts,
-    schedules, or publishes to any real account -- that needs each
-    platform's own connected API, which isn't built yet.
-    llm_client.SOCIAL_MEDIA_MANAGER_SYSTEM_PROMPT forbids claiming
-    otherwise, and the output always opens with a "Note on scope" line
-    saying so explicitly.
-    """
-    profiles = db.list_brand_profiles(user["id"])
-    brand_profile = dict(profiles[0]) if profiles else None
-    return llm_client.generate_social_content(request_summary, brand_profile=brand_profile)
-
-
 def _run_performance_analyst(user, request_summary):
     """Real processing for the Performance Analyst agent: an actual call
     to OpenAI that analyzes real numbers the creator pastes into their
@@ -149,7 +139,6 @@ AGENT_HANDLERS = {
     "scriptwriter": _run_scriptwriter,
     "trend_researcher": _run_trend_researcher,
     "ads_manager": _run_ads_manager,
-    "social_media_manager": _run_social_media_manager,
     "performance_analyst": _run_performance_analyst,
 }
 
