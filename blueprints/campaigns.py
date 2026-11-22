@@ -79,7 +79,7 @@ def create():
         for agent_slug, title in workflow:
             task_id = db.create_campaign_task(campaign_id, agent_slug, title, depends_on_task_id=previous_task_id)
             if plan_slug is None or not config.plan_includes_agent(plan_slug, agent_slug):
-                db.update_campaign_task_status(task_id, "blocked", "Requires Full Studio -- not included in your current plan.")
+                db.update_campaign_task_status(task_id, "blocked", "Requires an active subscription -- choose a plan to unlock this agent.")
             previous_task_id = task_id
         flash(plan_message, "info")
         return redirect(url_for("campaigns.detail", campaign_id=campaign_id))

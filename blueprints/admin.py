@@ -15,20 +15,23 @@ bp = Blueprint("admin", __name__)
 def overview():
     """An agency admin's own team page -- scoped to their own agency only.
     Shows their teammates, the agency's shared plan (one subscription now
-    covers the whole team, not each person separately), and lets the
-    admin update their branding (logo/name shown instead of "Creator Hub
-    AI") and invite new teammates. Never shows another agency's data --
-    the cross-agency view is the separate platform-owner page below."""
+    covers the whole team, not each person separately), and -- on the
+    Agency plan only -- lets the admin update their branding (logo/name
+    shown instead of "Creator Hub AI") and invite new teammates. Never
+    shows another agency's data -- the cross-agency view is the separate
+    platform-owner page below."""
     user = access.current_user()
     agency = db.get_agency(user["agency_id"]) if user["agency_id"] else None
     members = db.list_agency_members(user["agency_id"]) if user["agency_id"] else []
     subscription = db.get_active_subscription(user["id"])
+    plan_slug = subscription["plan_slug"] if subscription else None
 
     return render_template(
         "admin.html", title="Admin", active="admin",
         agency=agency,
         members=members,
         subscription=subscription,
+        has_agency_features=config.plan_allows_agency_features(plan_slug),
         plans=config.PLANS, plan_order=config.PLAN_ORDER,
         agents=[config.AGENTS[s] for s in config.AGENT_ORDER],
         integrations=config.INTEGRATIONS,
@@ -36,9 +39,32 @@ def overview():
     )
 
 
+def _require_agency_features():
+    """Shared guard for the two agency-plan-only actions below (branding
+    and invites). Returns a redirect response if the acting user's agency
+    isn't on a plan that grants these, else None. Checked here rather than
+    only hidden in the template, since a hidden form is never real access
+    control -- the spec's own rule (enforce on the backend, not just the
+    UI) applies here exactly like it does to agent access in access.py."""
+    user = access.current_user()
+    subscription = db.get_active_subscription(user["id"])
+    plan_slug = subscription["plan_slug"] if subscription else None
+    if not config.plan_allows_agency_features(plan_slug):
+        flash(
+            f"Custom branding and inviting teammates are part of the {config.PLANS['full_studio']['name']} plan "
+            f"(${config.PLANS['full_studio']['price_usd']}/mo). Upgrade to unlock them for your whole team.",
+            "warning",
+        )
+        return redirect(url_for("billing.pricing"))
+    return None
+
+
 @bp.route("/admin/branding", methods=["POST"])
 @access.admin_required
 def update_branding():
+    guard = _require_agency_features()
+    if guard:
+        return guard
     user = access.current_user()
     if not user["agency_id"]:
         abort(404)
@@ -55,13 +81,17 @@ def update_branding():
 @bp.route("/admin/invite", methods=["POST"])
 @access.admin_required
 def invite_teammate():
-    """Adds a new teammate directly into the admin's own agency. No email
-    service is required for this (config.is_configured('email') may well
-    be False, same gap as password-reset emails) -- the admin sets a
+    """Adds a new teammate directly into the admin's own agency -- an
+    Agency-plan feature, enforced by _require_agency_features() above. No
+    email service is required for this (config.is_configured('email') may
+    well be False, same gap as password-reset emails) -- the admin sets a
     temporary password here and tells the teammate directly, who can
     change it from their account page afterward. The new teammate always
     joins the SAME agency as the admin inviting them, is_admin=False, and
     can never be made a platform owner this way."""
+    guard = _require_agency_features()
+    if guard:
+        return guard
     user = access.current_user()
     full_name = request.form.get("full_name", "").strip()
     email = request.form.get("email", "").strip().lower()

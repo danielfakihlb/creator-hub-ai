@@ -9,16 +9,13 @@ bp = Blueprint("billing", __name__)
 
 @bp.route("/pricing")
 def pricing():
-    rows = []
-    for slug in config.AGENT_ORDER:
-        agent = config.AGENTS[slug]
-        rows.append({
-            "agent": agent,
-            "in_creator": config.plan_includes_agent("creator", slug),
-            "in_full_studio": config.plan_includes_agent("full_studio", slug),
-        })
+    # Every agent is on every plan now -- Creator Hub AI is sold as one
+    # full toolkit, not a cut-down tier. The only things that actually
+    # differ between plans are team size and white-label branding, so the
+    # pricing page compares those instead of agent-by-agent access.
+    agents = [config.AGENTS[slug] for slug in config.AGENT_ORDER]
     return render_template(
-        "pricing.html", title="Pricing", plans=config.PLANS, plan_order=config.PLAN_ORDER, rows=rows,
+        "pricing.html", title="Pricing", plans=config.PLANS, plan_order=config.PLAN_ORDER, agents=agents,
     )
 
 
