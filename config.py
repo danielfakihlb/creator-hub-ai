@@ -337,3 +337,12 @@ SECRET_KEY = os.environ.get("CREATOR_HUB_SECRET_KEY", "dev-only-insecure-key-cha
 # string Render gives you for a Postgres database -- set it in the web
 # service's Environment settings.
 DATABASE_URL = os.environ.get("DATABASE_URL")
+
+# Set this to Daniel's own account email in the web service's Environment
+# settings to make that one account the platform owner -- the only login
+# that can see every agency at once (see access.py's platform_owner_required
+# and database.py's promote_platform_owner). Checked once at startup
+# (app.py); safe to leave unset, and safe to change later -- the next
+# deploy just re-applies it. Sign up for a normal account first, THEN set
+# this to that account's email, so there's an account for it to find.
+PLATFORM_OWNER_EMAIL = os.environ.get("PLATFORM_OWNER_EMAIL")

@@ -53,6 +53,9 @@ def login_required(view):
 
 
 def admin_required(view):
+    """Gates a page to admins of the logged-in user's OWN agency -- team
+    management, branding, inviting teammates. This never grants visibility
+    into any other agency; that's a separate, stronger check, below."""
     @wraps(view)
     def wrapped(*args, **kwargs):
         user = current_user()
@@ -62,6 +65,34 @@ def admin_required(view):
             abort(403)
         return view(*args, **kwargs)
     return wrapped
+
+
+def platform_owner_required(view):
+    """Gates a page to Daniel's own cross-agency superadmin account --
+    the one view in the app that can see every agency at once. Deliberately
+    a separate flag from is_admin (which only ever means "admin of one
+    agency"), set only via database.py's promote_platform_owner, so an
+    agency's own admin can never accidentally end up with this."""
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        user = current_user()
+        if user is None:
+            return redirect(url_for("auth.login", next=request.path))
+        if not user["is_platform_owner"]:
+            abort(403)
+        return view(*args, **kwargs)
+    return wrapped
+
+
+def current_agency():
+    """The logged-in user's own agency row (for branding: name/logo_url),
+    or None if they're not logged in or have no agency yet."""
+    user = current_user()
+    if not user or not user.get("agency_id"):
+        return None
+    if not hasattr(g, "_current_agency"):
+        g._current_agency = db.get_agency(user["agency_id"])
+    return g._current_agency
 
 
 def agent_access_required(agent_slug):

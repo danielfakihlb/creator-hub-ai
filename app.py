@@ -24,7 +24,10 @@ def create_app():
     init_csrf_protection(app)
 
     db.init_db()  # idempotent -- CREATE TABLE IF NOT EXISTS
+    db.backfill_agency_ids()  # idempotent -- one-time migration for pre-agency accounts
     db.seed_demo_account()
+    if config.PLATFORM_OWNER_EMAIL:
+        db.promote_platform_owner(config.PLATFORM_OWNER_EMAIL)
 
     from blueprints.marketing import bp as marketing_bp
     from blueprints.auth import bp as auth_bp
@@ -62,6 +65,7 @@ def create_app():
         return {
             "g_user": user,
             "g_plan": plan,
+            "g_agency": access.current_agency(),
             "cfg": config,
         }
 
