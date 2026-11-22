@@ -23,13 +23,14 @@ _RESET_REQUESTED_MESSAGE = (
             message="Too many signup attempts from this connection. Please wait a bit and try again.")
 def signup():
     if request.method == "POST":
+        agency_name = request.form.get("agency_name", "").strip()
         full_name = request.form.get("full_name", "").strip()
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("password", "")
         chosen_plan = request.form.get("plan") or request.args.get("plan")
 
         error = None
-        if not full_name or not email or not password:
+        if not agency_name or not full_name or not email or not password:
             error = "Please fill in every field."
         elif len(password) < 8:
             error = "Password must be at least 8 characters."
@@ -40,7 +41,13 @@ def signup():
             flash(error, "danger")
             return render_template("auth/signup.html", title="Create your account", plans=config.PLANS, selected_plan=chosen_plan)
 
-        user_id = db.create_user(email, generate_password_hash(password), full_name)
+        # Signing up creates a brand-new agency workspace, and the person
+        # who signs up is automatically its admin -- they can invite
+        # teammates afterward from the Team page. Every agency starts
+        # fully isolated from every other one; nothing here ever lets a
+        # new signup join an existing agency by accident.
+        agency_id = db.create_agency(agency_name)
+        user_id = db.create_user(email, generate_password_hash(password), full_name, agency_id, is_admin=True)
 
         # No payment provider is connected yet (see billing blueprint), so a
         # chosen plan is recorded as 'payment_required' rather than silently
