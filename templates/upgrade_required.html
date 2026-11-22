@@ -3,14 +3,14 @@
 {% block content %}
 <div class="card upgrade-panel">
   <div class="upgrade-icon">{{ ic.icon('lock', 26) }}</div>
-  <div class="badge badge-studio mb-3">Full Studio required</div>
-  <h2 style="font-size:24px;">{{ agent.name }} is part of Full Studio</h2>
-  <p class="text-secondary mt-3">{{ agent.short_description }} Unlock it &mdash; along with the Social Media Manager, Ads Manager, and Performance Analyst &mdash; on the Full Studio plan.</p>
+  <div class="badge badge-creator mb-3">Plan required</div>
+  <h2 style="font-size:24px;">Choose a plan to use {{ agent.name }}</h2>
+  <p class="text-secondary mt-3">{{ agent.short_description }} Every plan includes every AI agent -- you just need an active subscription to use any of them.</p>
 
   <div class="card" style="margin-top:24px; text-align:left; background:var(--bg-surface-2);">
     <div class="flex justify-between items-center mb-2">
-      <strong>Full Studio</strong>
-      <span class="price-amount" style="font-size:24px;">${{ required_plan.price_usd if required_plan else 80 }}<span>/mo</span></span>
+      <strong>{{ required_plan.name if required_plan else 'Creator' }}</strong>
+      <span class="price-amount" style="font-size:24px;">${{ required_plan.price_usd if required_plan else 50 }}<span>/mo</span></span>
     </div>
     <ul class="pricing-list">
       <li><span class="check">{{ ic.icon('check',15) }}</span> All {{ cfg.AGENT_ORDER|length }} AI agents, including this one</li>
@@ -19,7 +19,8 @@
     </ul>
   </div>
 
-  <a href="{{ url_for('billing.checkout', plan='full_studio') }}" class="btn btn-studio btn-block mt-4">Upgrade to Full Studio</a>
+  <a href="{{ url_for('billing.checkout', plan=required_plan.slug if required_plan else 'creator') }}" class="btn btn-primary btn-block mt-4">Choose {{ required_plan.name if required_plan else 'Creator' }}</a>
+  <a href="{{ url_for('billing.pricing') }}" class="btn btn-ghost btn-block mt-2">See all plans</a>
   <a href="{{ url_for('agents.directory') }}" class="btn btn-ghost btn-block mt-2">Back to Agents</a>
 </div>
 {% endblock %}

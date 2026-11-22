@@ -25,11 +25,7 @@
       <div class="card card-hover agent-card">
         <div class="agent-card-top">
           <div class="agent-icon">{{ ic.icon(agent.icon, 20) }}</div>
-          {% if agent.plans == ['full_studio'] %}
-            <span class="badge badge-studio">Full Studio</span>
-          {% else %}
-            <span class="badge badge-creator">Creator+</span>
-          {% endif %}
+          <span class="badge badge-creator">Included</span>
         </div>
         <div>
           <div class="agent-name">{{ agent.name }}</div>
@@ -62,20 +58,20 @@
       </div>
       {% endfor %}
     </div>
-    <p class="text-tertiary text-sm" style="text-align:center; margin-top:18px;">*Full Studio plan. You approve every step &mdash; nothing publishes or spends budget without your confirmation.</p>
+    <p class="text-tertiary text-sm" style="text-align:center; margin-top:18px;">*Included on every plan. You approve every step &mdash; nothing publishes or spends budget without your confirmation.</p>
   </div>
 </section>
 
 <section class="section" id="pricing">
   <div class="container">
     <div class="section-label">Pricing</div>
-    <h2 class="section-title">Two plans. Pick your toolkit.</h2>
-    <p class="section-sub">Start with the Creator plan, or go Full Studio for every agent and advanced publishing & analytics.</p>
+    <h2 class="section-title">Every agent, on every plan.</h2>
+    <p class="section-sub">The plans don't cut down which agents you get -- every agent above is included either way. They differ on team size and branding: use it yourself, or run it as your own white-labeled platform for your whole team.</p>
     <div class="grid grid-2" style="max-width:760px; margin:0 auto;">
       {% for slug in plan_order %}
         {% set plan = plans[slug] %}
         <div class="card pricing-card {{ 'featured' if slug=='full_studio' }}">
-          {% if slug == 'full_studio' %}<span class="badge badge-studio" style="position:absolute; top:22px; right:22px;">Most complete</span>{% endif %}
+          {% if slug == 'full_studio' %}<span class="badge badge-studio" style="position:absolute; top:22px; right:22px;">For agencies</span>{% endif %}
           <div>
             <div class="agent-name" style="font-size:18px;">{{ plan.name }}</div>
             <div class="text-secondary text-sm mt-1">{{ plan.tagline }}</div>
@@ -86,7 +82,7 @@
       {% endfor %}
     </div>
     <p class="text-tertiary text-sm" style="text-align:center;margin-top:16px;">
-      <a href="{{ url_for('billing.pricing') }}" style="color:var(--brand-400); font-weight:600;">Compare every agent across both plans &rarr;</a>
+      <a href="{{ url_for('billing.pricing') }}" style="color:var(--brand-400); font-weight:600;">See full plan details &rarr;</a>
     </p>
   </div>
 </section>
@@ -97,8 +93,8 @@
     <h2 class="section-title">Questions, answered</h2>
     <div class="mt-6">
       {% set faqs = [
-        ("Which agents are in the Creator plan?", "The exact Creator-plan lineup is finalized by the platform admin and shown on the Pricing page -- it's config-driven, not fixed in code, so it can evolve as the agents mature."),
-        ("What's exclusive to Full Studio?", "The AI Social Media Manager, AI Ads Manager, and AI Performance Analyst are available only on the $80/month Full Studio plan."),
+        ("What's the difference between the two plans?", "Nothing agent-related -- both plans include every AI agent above. Creator is for one person using it on their own account. Agency adds unlimited team members and lets you replace \"Creator Hub AI\" with your own logo and name throughout the app, so you can run it as your own branded platform for your clients or team."),
+        ("Can I invite my team?", "On the Agency plan, yes -- an admin can add as many teammates as needed from the Admin page, and everyone shares the same projects, media, campaigns, and plan."),
         ("Will the AI ever publish or spend money without me?", "No. Publishing requires a confirmed platform connection and your explicit action, and ad campaigns never launch or spend budget without your approval first."),
         ("Do I need to connect my own AI/API accounts?", "Core workflows run out of the box. Agents that call external AI models, video rendering, or social platforms need those services connected under Account Settings -- and we always tell you clearly when something needs setup rather than faking a result."),
       ] %}

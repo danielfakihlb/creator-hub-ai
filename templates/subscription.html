@@ -19,9 +19,9 @@
   <div class="divider"></div>
   <div class="flex gap-3">
     {% if plan.slug != 'full_studio' %}
-    <a href="{{ url_for('billing.checkout', plan='full_studio') }}" class="btn btn-studio">Upgrade to Full Studio</a>
+    <a href="{{ url_for('billing.checkout', plan='full_studio') }}" class="btn btn-studio">Upgrade to {{ plans['full_studio'].name }}</a>
     {% else %}
-    <a href="{{ url_for('billing.checkout', plan='creator') }}" class="btn btn-secondary">Downgrade to Creator</a>
+    <a href="{{ url_for('billing.checkout', plan='creator') }}" class="btn btn-secondary">Downgrade to {{ plans['creator'].name }}</a>
     {% endif %}
     {% if subscription['status'] == 'active' %}
     <form method="post" action="{{ url_for('billing.cancel') }}" onsubmit="return confirm('Cancel your subscription?');">

@@ -106,7 +106,7 @@
       {% for agent in locked_agents %}
       <a href="{{ url_for('agents.detail', agent_slug=agent.slug) }}" class="flex items-center justify-between text-sm" style="padding:8px 2px; color:var(--text-tertiary);">
         <span class="flex items-center gap-2">{{ ic.icon('lock',13) }} {{ agent.name }}</span>
-        <span class="badge badge-studio">Full Studio</span>
+        <span class="badge badge-studio">Choose a plan</span>
       </a>
       {% endfor %}
     </div>

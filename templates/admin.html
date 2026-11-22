@@ -1,5 +1,4 @@
 {% extends "base_app.html" %}
-{% import "_icons.html" as ic %}
 {% block content %}
 <div class="page-header">
   <div>
@@ -25,6 +24,7 @@
     </table>
     <div style="padding:16px 22px 20px;">
       <h4 style="font-size:13px; margin-bottom:10px;">Invite a teammate</h4>
+      {% if has_agency_features %}
       <form method="post" action="{{ url_for('admin.invite_teammate') }}" class="flex gap-2" style="flex-wrap:wrap;">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="text" name="full_name" placeholder="Full name" required style="flex:1; min-width:140px;">
@@ -33,6 +33,9 @@
         <button type="submit" class="btn btn-primary btn-sm">Add to team</button>
       </form>
       <div class="field-hint mt-2">They join your agency, sharing your team's plan and data. Leave the password blank to have one generated for you to share with them.</div>
+      {% else %}
+      <p class="text-tertiary text-sm">Inviting teammates is part of the {{ plans['full_studio'].name }} plan (${{ plans['full_studio'].price_usd }}/mo). <a href="{{ url_for('billing.pricing') }}" style="color:var(--brand-400); font-weight:600;">Upgrade</a> to add your team.</p>
+      {% endif %}
     </div>
   </div>
 
@@ -52,6 +55,7 @@
 
 <div class="card" style="margin-bottom:24px;">
   <h3 style="font-size:15px; margin-bottom:12px;">Your branding</h3>
+  {% if has_agency_features %}
   <p class="text-tertiary text-sm mb-3">Shows your logo and name instead of "Creator Hub AI" throughout the app, once your team is signed in. (The sign-in page itself is shared by every agency, so it can't show your branding before login -- that would need a custom domain per agency, which isn't part of this.)</p>
   <form method="post" action="{{ url_for('admin.update_branding') }}" class="flex gap-2" style="flex-wrap:wrap;">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -59,6 +63,9 @@
     <input type="text" name="logo_url" value="{{ agency['logo_url'] if agency and agency['logo_url'] else '' }}" placeholder="Logo image URL (optional)" style="flex:2; min-width:220px;">
     <button type="submit" class="btn btn-primary btn-sm">Save branding</button>
   </form>
+  {% else %}
+  <p class="text-tertiary text-sm">White-label branding (your logo and name instead of "Creator Hub AI") is part of the {{ plans['full_studio'].name }} plan (${{ plans['full_studio'].price_usd }}/mo). <a href="{{ url_for('billing.pricing') }}" style="color:var(--brand-400); font-weight:600;">Upgrade</a> to brand it as your own.</p>
+  {% endif %}
 </div>
 
 <div class="card" style="margin-bottom:24px;">
@@ -73,23 +80,8 @@
   </div>
 </div>
 
-<div class="card" style="padding:0;">
-  <div style="padding:18px 22px 0;">
-    <h3 style="font-size:15px;">Agent &rarr; plan configuration</h3>
-    <p class="text-tertiary text-sm mt-1">Defined in <code>config.py</code>. Editing the plan editor UI to change this live is planned; for now it's a code-level config change by design, so access rules can be reviewed before shipping.</p>
-  </div>
-  <table class="table">
-    <thead><tr><th>Agent</th>{% for slug in plan_order %}<th style="text-align:center;">{{ plans[slug].name }}</th>{% endfor %}</tr></thead>
-    <tbody>
-      {% for agent in agents %}
-      <tr>
-        <td class="flex items-center gap-2" style="font-weight:600;">{{ ic.icon(agent.icon, 15) }} {{ agent.name }}</td>
-        {% for slug in plan_order %}
-        <td style="text-align:center;">{% if slug in agent.plans %}<span style="color:var(--success-500);">{{ ic.icon('check',15) }}</span>{% else %}<span class="text-tertiary">&mdash;</span>{% endif %}</td>
-        {% endfor %}
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+<div class="card">
+  <h3 style="font-size:15px; margin-bottom:8px;">Agents included</h3>
+  <p class="text-tertiary text-sm">Every plan includes all {{ agents|length }} AI agents &mdash; {{ plans['creator'].name }} and {{ plans['full_studio'].name }} aren't tiered by features, only by team size and branding: {{ plans['creator'].name }} is for one person using it themselves, {{ plans['full_studio'].name }} adds unlimited teammates and your own logo/name throughout the app.</p>
 </div>
 {% endblock %}

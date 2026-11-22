@@ -4,7 +4,7 @@
 <div class="page-header">
   <div>
     <div class="page-title">AI Agents</div>
-    <div class="page-subtitle">{{ agent_rows|length }} specialists, assignable to plans by configuration &mdash; not hardcoded.</div>
+    <div class="page-subtitle">{{ agent_rows|length }} specialists, included on every plan &mdash; an active subscription unlocks all of them.</div>
   </div>
 </div>
 
@@ -16,8 +16,6 @@
       <div class="agent-icon">{{ ic.icon(agent.icon, 20) }}</div>
       {% if not row.unlocked %}
         <span class="badge badge-studio">{{ ic.icon('lock',11) }} {{ row.required_plan.name if row.required_plan else 'Locked' }}</span>
-      {% elif agent.plans == ['full_studio'] %}
-        <span class="badge badge-studio">Full Studio</span>
       {% else %}
         <span class="badge badge-creator">Included</span>
       {% endif %}
