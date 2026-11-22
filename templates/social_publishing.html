@@ -1,0 +1,113 @@
+{% extends "base_app.html" %}
+{% import "_icons.html" as ic %}
+{% block content %}
+<div class="page-header">
+  <div class="flex items-center gap-3">
+    <div class="agent-icon" style="width:46px;height:46px;">{{ ic.icon(agent.icon, 22) }}</div>
+    <div>
+      <div class="page-title">{{ agent.name }}</div>
+      <div class="page-subtitle">{{ agent.short_description }}</div>
+    </div>
+  </div>
+  <a href="{{ url_for('agents.directory') }}" class="btn btn-ghost">All agents</a>
+</div>
+
+{% if not llm_ready %}
+<div class="alert alert-warning">
+  <strong>Needs an OpenAI key for drafts:</strong> captions, hashtags, and calendar drafts use your connected OpenAI API key (see Account Settings &rarr; Integrations).
+</div>
+{% endif %}
+{% if not posting_ready %}
+<div class="alert alert-warning">
+  <strong>Instagram publishing isn't connected on this server yet.</strong> Drafting still works above once an OpenAI key is connected.
+</div>
+{% endif %}
+
+<div class="grid grid-2" style="grid-template-columns: 1.3fr 1fr;">
+  <div>
+    <div class="card">
+      <h3 style="font-size:15px; margin-bottom:14px;">Draft captions, hashtags & a content calendar</h3>
+      <form method="post" action="{{ url_for('social_publishing.draft') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="field">
+          <label>What do you want drafted?</label>
+          <textarea name="request_summary" rows="3" placeholder="e.g. A week of Instagram captions announcing my new 14-day fight camp program."></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary">{{ 'Draft it' if llm_ready else 'Save request' }}</button>
+      </form>
+    </div>
+
+    <div class="card mt-4">
+      <div class="flex justify-between items-center" style="margin-bottom:14px;">
+        <h3 style="font-size:15px;">Publish to Instagram</h3>
+        {% if instagram_connected %}
+        <span class="status-pill"><span class="dot" style="background: var(--success-500);"></span> Instagram connected</span>
+        {% else %}
+        <span class="status-pill"><span class="dot" style="background: var(--text-tertiary);"></span> Not connected</span>
+        {% endif %}
+      </div>
+
+      {% if not instagram_connected %}
+      <div class="text-secondary text-sm mb-3">Connect your agency's Instagram account once, and anyone on your team can publish from here afterward.</div>
+      <form method="post" action="{{ url_for('social_publishing.connect_instagram') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-primary" {{ 'disabled' if not posting_ready }}>Connect Instagram</button>
+      </form>
+      {% if not g_user['is_admin'] %}
+      <div class="text-tertiary text-sm mt-2">Only your agency's admin can connect Instagram.</div>
+      {% endif %}
+      {% else %}
+      <form method="post" action="{{ url_for('social_publishing.publish') }}" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="field">
+          <label>Photo or video</label>
+          <input type="file" name="media" accept=".jpg,.jpeg,.png,.webp,.mp4,.mov,.m4v,.webm" required>
+        </div>
+        <div class="field">
+          <label>Caption</label>
+          <textarea name="caption" rows="3" placeholder="Write the caption that goes out with this post." required></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">Post to Instagram</button>
+        <div class="text-tertiary text-sm mt-2">This posts for real, immediately -- there's no draft/review step once you click Post.</div>
+      </form>
+      {% endif %}
+    </div>
+
+    <div class="mt-6">
+      <h3 style="font-size:15px; margin-bottom:14px;">Recent activity</h3>
+      {% if recent_tasks %}
+      <div class="flex-col gap-3">
+        {% for t in recent_tasks %}
+        <div class="card" style="padding:14px 16px;">
+          <div class="flex justify-between items-start gap-3">
+            <span class="text-sm">{{ t['request_summary'] }}</span>
+            <span class="status-pill" style="flex-shrink:0;">
+              <span class="dot" style="background: {{ {'completed':'var(--success-500)','running':'var(--info-500)','needs_integration':'var(--warning-500)','failed':'var(--danger-500)'}.get(t['status'], 'var(--text-tertiary)') }};"></span>
+              {{ t['status'].replace('_',' ') }}
+            </span>
+          </div>
+          {% if t['result_summary'] %}<div class="text-secondary text-sm mt-2" style="white-space:pre-wrap;">{{ t['result_summary'] }}</div>{% endif %}
+          {% if t['error_message'] %}<div class="text-tertiary text-sm mt-2">{{ t['error_message'] }}</div>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="card empty-state text-sm">No activity yet.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card" style="align-self:start;">
+    <h3 style="font-size:15px; margin-bottom:12px;">What this agent does</h3>
+    <ul class="agent-caps">
+      {% for cap in agent.capabilities %}
+      <li>{{ cap }}</li>
+      {% endfor %}
+    </ul>
+    {% if agent.requires_integration %}
+    <div class="divider"></div>
+    <div class="text-tertiary text-sm"><strong>Needs:</strong> {{ agent.requires_integration }}</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
